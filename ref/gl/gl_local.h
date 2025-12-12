@@ -64,12 +64,12 @@ void VGL_ShimEndFrame( void );
 extern poolhandle_t r_temppool;
 
 #define BLOCK_SIZE		tr.block_size	// lightmap blocksize
-#define BLOCK_SIZE_DEFAULT	128		// for keep backward compatibility
-#define BLOCK_SIZE_MAX	1024
+#define BLOCK_SIZE_DEFAULT	1024		// for keep backward compatibility
+#define BLOCK_SIZE_MAX	4096
 
 #define MAX_TEXTURES            8192	// a1ba: increased by users request
 #define MAX_DETAIL_TEXTURES	256
-#define MAX_LIGHTMAPS	256
+#define MAX_LIGHTMAPS	512
 #define SUBDIVIDE_SIZE	64
 #define MAX_DECAL_SURFS	4096
 #define MAX_DRAW_STACK	2		// normal view and menu view
