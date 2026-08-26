@@ -776,3 +776,13 @@ Steam, con bots). El `ns/` (3.2) sigue ahí también.
 - **`patches/`** versionado: parches binarios reproducibles (minimapa ns33).
 - **`.git/info/exclude`**: datos de juego (firearms/, ns/, ns33/, valve/...),
   binarios y logs fuera de git.
+
+### Minimapa: verificado y reportado (27/08)
+
+- Parche binario del minimapa **verificado por Oscar**: el mapa en su caja.
+- El «se ve fatal/borracho» de después era `hud_scale "1024"` (autoscale HUD del
+  menú) en ns33/config.cfg — cvar FCVAR_LATCH: no se aplica hasta reiniciar (por
+  eso parecía que no se podía desactivar). Puesto a 0 + reinicio: resuelto.
+  Lección: NS y el autoescalado del HUD, incompatibles.
+- **Issue #2728 abierto en FWGS** con el diagnóstico completo del vgui_support y
+  el arreglo propuesto: https://github.com/FWGS/xash3d-fwgs/issues/2728
