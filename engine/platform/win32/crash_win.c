@@ -186,7 +186,7 @@ static void Sys_StackTrace( PEXCEPTION_POINTERS pInfo )
 			i, (void*)stackframe.AddrPC.Offset );
 		if( SymFromAddr( process, stackframe.AddrPC.Offset, &displacement, symbol ))
 		{
-			len += Q_snprintf( message + len, sizeof( message ) - len, " %s ", symbol->Name );
+			len += Q_snprintf( message + len, sizeof( message ) - len, " %s+0x%llx ", symbol->Name, (unsigned long long)displacement );
 		}
 
 		if( SymGetLineFromAddr64( process, stackframe.AddrPC.Offset, &dline, &line ))
@@ -197,6 +197,12 @@ static void Sys_StackTrace( PEXCEPTION_POINTERS pInfo )
 
 		len += Q_snprintf( message + len, sizeof( message ) - len, "(" );
 		len += Sys_ModuleName( process, message + len, (void*)stackframe.AddrPC.Offset, sizeof( message ) - len );
+		{
+			DWORD64 modbase = SymGetModuleBase64( process, stackframe.AddrPC.Offset );
+			if( modbase )
+				len += Q_snprintf( message + len, sizeof( message ) - len, " rva:0x%llx",
+					(unsigned long long)( stackframe.AddrPC.Offset - modbase ));
+		}
 		len += Q_snprintf( message + len, sizeof( message ) - len, ")\n" );
 	}
 
