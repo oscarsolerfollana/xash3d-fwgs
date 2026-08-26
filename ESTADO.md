@@ -763,3 +763,16 @@ Steam, con bots). El `ns/` (3.2) sigue ahí también.
       como pregunta abierta antes de mandar PR (mismo movimiento que el #2721).
 - [ ] **Esperar respuesta en el #1371.** Si les encaja la heurística, mandar el PR desde
       una rama nueva (el arreglo está en el árbol de trabajo, `in_keys.c`, sin commitear).
+
+---
+
+## 15. Disciplina de git (desde 27/08)
+
+- **Rama `local/oscar`** en el repo principal: el estado vivo de Oscar, commiteado
+  por temas (build mingw, sprint, crashdump, dbg, arreglos+bunnyhop, docs/scripts).
+  `master` queda limpio siguiendo a upstream.
+- **Cada arreglo upstreamable: rama propia** `fix/<nombre>` en el worktree
+  `xash3d-pr`, desde `origin/master`, solo con su hunk (nunca bunnyhop ni dbg).
+- **`patches/`** versionado: parches binarios reproducibles (minimapa ns33).
+- **`.git/info/exclude`**: datos de juego (firearms/, ns/, ns33/, valve/...),
+  binarios y logs fuera de git.
