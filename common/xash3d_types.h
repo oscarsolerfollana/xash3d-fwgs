@@ -123,7 +123,13 @@ typedef int qboolean;
 	#define ALLOC_CHECK( x )   __attribute__(( alloc_size( x )))
 	#define WARN_UNUSED_RESULT __attribute__(( warn_unused_result ))
 	#define MAYBE_UNUSED       __attribute__(( unused ))
-	#define RENAME_SYMBOL( x ) asm( x )
+	#if defined( __MINGW32__ ) && defined( __i386__ )
+		// i386 PE prefixes C symbols with an underscore, but an asm() rename bypasses
+		// that, so ld fails to find the symbol when building the DLL export table
+		#define RENAME_SYMBOL( x ) asm( "_" x )
+	#else
+		#define RENAME_SYMBOL( x ) asm( x )
+	#endif
 	#if !defined( offsetof )
 		#define offsetof( s, m )   __builtin_offsetof( s, m )
 	#endif // !defined( offsetof )

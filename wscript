@@ -604,6 +604,14 @@ def build(bld):
 
 	bld.load('xshlib')
 
+	if bld.env.DEST_OS == 'win32' and bld.env.COMPILER_CC != 'msvc':
+		# MinGW's windres spawns the preprocessor through cmd.exe, so a define whose
+		# value contains angle brackets (ALLOCA_H=<malloc.h>) is taken as a redirection
+		# and preprocessing fails. No .rc file here needs the project defines.
+		from waflib.Tools import winres
+		class winrc(winres.winrc):
+			run_str = '${WINRC} ${WINRCFLAGS} ${CPPPATH_ST:INCPATHS} ${WINRC_TGT_F} ${TGT} ${WINRC_SRC_F} ${SRC}'
+
 	for i in SUBDIRS:
 		if not i.is_enabled(bld):
 			continue
