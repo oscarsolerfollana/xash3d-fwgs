@@ -569,6 +569,39 @@ void Key_Init( void )
 
 /*
 ===================
+Key_IsGoldSrcStyleBinding
+
+GoldSrc never splits a binding by semicolon, it appends the key number to the whole
+string, so "+sprint;-sprint" runs "+sprint" without a key number and "-sprint <key>"
+with one. Mods depend on that: HLSDK's KeyUp treats a "-cmd" carrying no key number as
+an unstick request typed at the console and wipes the button state. Splitting the
+binding puts the key number on the other half and the button is released the instant
+it's pressed, so reproduce GoldSrc for bindings that use the "+cmd;-cmd" idiom.
+===================
+*/
+static qboolean Key_IsGoldSrcStyleBinding( const char *kb )
+{
+	if( kb[0] != '+' )
+		return false;
+
+	for( ; *kb != '\0'; kb++ )
+	{
+		const char *p;
+
+		if( *kb != ';' )
+			continue;
+
+		for( p = kb + 1; *p != '\0' && (byte)*p <= ' '; p++ );
+
+		if( *p == '-' )
+			return true;
+	}
+
+	return false;
+}
+
+/*
+===================
 Key_AddKeyCommands
 ===================
 */
@@ -578,6 +611,16 @@ static void Key_AddKeyCommands( int key, const char *kb, qboolean down )
 
 	char button[1024];
 	char *buttonPtr = button;
+
+	if( Key_IsGoldSrcStyleBinding( kb ))
+	{
+		char cmd[1024];
+
+		if( down ) Q_snprintf( cmd, sizeof( cmd ), "%s %i\n", kb, key );
+		else Q_snprintf( cmd, sizeof( cmd ), "-%s %i\n", kb + 1, key );
+		Cbuf_AddText( cmd );
+		return;
+	}
 
 	for( int i = 0; ; i++ )
 	{
