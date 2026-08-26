@@ -786,3 +786,15 @@ Steam, con bots). El `ns/` (3.2) sigue ahí también.
   Lección: NS y el autoescalado del HUD, incompatibles.
 - **Issue #2728 abierto en FWGS** con el diagnóstico completo del vgui_support y
   el arreglo propuesto: https://github.com/FWGS/xash3d-fwgs/issues/2728
+
+### Movimientos con upstream (27/08, tarde)
+
+- **PR #2726 APROBADO** por a1batross («100% de acuerdo»; añade que seguramente
+  explica bugs nunca cazados de otros mods). Pega: quitar el comentario del código
+  («solo era un typo»). Hecho: commit reescrito (`0fcac621`, diff 2+/2-),
+  force-push y respuesta en el hilo. A la espera del merge.
+- **#1371 (sprint):** a1batross teme romper a otros y pregunta por una solución
+  que valga para todos. Respondido proponiendo formalmente la heurística
+  `+cmd;-cmd` (con el argumento de que ningún bind puede depender del
+  comportamiento actual de Xash para ese idioma) y ofreciendo PR o bugcomp:
+  https://github.com/FWGS/xash3d-fwgs/issues/1371#issuecomment-5432105010
