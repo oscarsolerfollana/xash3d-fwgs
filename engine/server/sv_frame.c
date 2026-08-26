@@ -17,6 +17,7 @@ GNU General Public License for more details.
 #include "server.h"
 #include "const.h"
 #include "net_encode.h"
+#include "dbg_weapon.h"
 
 typedef struct
 {
@@ -592,6 +593,14 @@ static void SV_WriteClientdataToMessage( sv_client_t *cl, sizebuf_t *msg )
 		}
 	}
 
+	if( !FBitSet( cl->flags, FCL_FAKECLIENT ))
+	{
+		int wpn = frame->clientdata.m_iId;
+
+		DbgWeapon_Report( DBG_WEAPON_SV, &frame->clientdata,
+			( wpn > 0 && wpn < MAX_LOCAL_WEAPONS ) ? &frame->weapondata[wpn] : NULL );
+	}
+
 	// end marker
 	MSG_WriteOneBit( msg, 0 );
 }
@@ -832,7 +841,12 @@ void SV_SendClientMessages( void )
 			continue;
 		}
 
-		if( !host_limitlocal.value && NET_IsLocalAddress( cl->netchan.remote_address ))
+		// the loopback client normally gets a snapshot every single frame to keep
+		// singleplayer as smooth as possible. on a listenserver that hands the game
+		// library several times the updates it expects, and mods that do work per
+		// snapshot in UpdateClientData/GetWeaponData drift because of it, so keep
+		// the shortcut for singleplayer only
+		if( !host_limitlocal.value && svs.maxclients == 1 && NET_IsLocalAddress( cl->netchan.remote_address ))
 			SetBits( cl->flags, FCL_SEND_NET_MESSAGE );
 
 		if( cl->state == cs_spawned )

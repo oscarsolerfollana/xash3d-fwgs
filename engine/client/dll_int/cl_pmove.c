@@ -19,6 +19,7 @@ GNU General Public License for more details.
 #include "cl_tent.h"
 #include "pm_local.h"
 #include "studio.h"
+#include "dbg_weapon.h"
 
 #define MAX_FORWARD			6	// forward probes for set idealpitch
 #define MIN_CORRECTION_DISTANCE	0.25f	// use smoothing if error is > this
@@ -333,12 +334,15 @@ static void CL_CopyEntityToPhysEnt( physent_t *pe, entity_state_t *state, qboole
 
 	if( state->solid == SOLID_BBOX )
 	{
-		if( FBitSet( mod->flags, STUDIO_TRACE_HITBOX ))
+		if( mod != NULL && FBitSet( mod->flags, STUDIO_TRACE_HITBOX ))
 			pe->studiomodel = mod;
 	}
 	else
 	{
-		if( pe->solid != SOLID_BSP && ( mod != NULL ) && ( mod->type == mod_studio ))
+		// use state->solid here: pe->solid still holds a stale value from
+		// whatever entity occupied this physent slot on a previous frame,
+		// which could put a studio model into pe->model
+		if( state->solid != SOLID_BSP && ( mod != NULL ) && ( mod->type == mod_studio ))
 			pe->studiomodel = mod;
 		else pe->model = mod;
 	}
@@ -936,6 +940,16 @@ static void CL_RunUsercmd( local_state_t *from, local_state_t *to, usercmd_t *u,
 	}
 
 	clgame.dllFuncs.pfnPostRunCmd( from, to, &cmd, runfuncs, *time, random_seed );
+
+	if( runfuncs )
+	{
+		// only the authoritative pass, re-prediction of already acked commands
+		// would report the same state over and over
+		int wpn = to->client.m_iId;
+
+		DbgWeapon_Report( DBG_WEAPON_CL, &to->client,
+			( wpn > 0 && wpn < MAX_LOCAL_WEAPONS ) ? &to->weapondata[wpn] : NULL );
+	}
 
 	*time += (double)cmd.msec / 1000.0;
 }

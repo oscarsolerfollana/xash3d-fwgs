@@ -52,6 +52,7 @@ static CVAR_DEFINE_AUTO( rcon_address, "", FCVAR_PRIVILEGED, "remote control add
 CVAR_DEFINE_AUTO( cl_timeout, "60", 0, "connect timeout (in-seconds)" );
 CVAR_DEFINE_AUTO( cl_nopred, "0", FCVAR_USERINFO, "disable client movement prediction" );
 static CVAR_DEFINE_AUTO( cl_nodelta, "0", 0, "disable delta-compression for server messages" );
+static CVAR_DEFINE_AUTO( bunnyhop, "0", FCVAR_ARCHIVE, "auto bunnyhop: hold jump to re-jump on landing" );
 CVAR_DEFINE( cl_crosshair, "crosshair", "1", FCVAR_ARCHIVE, "show weapon chrosshair" );
 static CVAR_DEFINE_AUTO( cl_cmdbackup, "10", FCVAR_ARCHIVE, "how many additional history commands are sent" );
 CVAR_DEFINE_AUTO( cl_showerror, "0", FCVAR_ARCHIVE, "show prediction error" );
@@ -801,6 +802,22 @@ static void CL_CreateCmd( void )
 	clgame.dllFuncs.CL_CreateMove( host.frametime, cmd, active );
 	IN_EngineAppendMove( host.frametime, cmd, active );
 
+	// auto bunnyhop: while airborne (and not swimming), hide the held jump button
+	// from the game so PM_Jump sees a fresh press on the frame we land
+	if( bunnyhop.value && active && FBitSet( cmd->buttons, IN_JUMP ))
+	{
+		if( cl.local.onground == -1 && cl.local.waterlevel <= 1 )
+		{
+			ClearBits( cmd->buttons, IN_JUMP );
+			if( bunnyhop.value > 1.0f )
+				Con_Printf( "bhop: strip (airborne)\n" );
+		}
+		else if( bunnyhop.value > 1.0f )
+		{
+			Con_Printf( "bhop: pass og=%d wl=%d\n", cl.local.onground, cl.local.waterlevel );
+		}
+	}
+
 	CL_PopPMStates();
 
 	if( !cls.demoplayback )
@@ -921,7 +938,11 @@ static void CL_WritePacket( void )
 	// can send this command?
 	pcmd = &cl.commands[cls.netchan.outgoing_sequence & CL_UPDATE_MASK];
 
-	if( cl.maxclients == 1 || ( NET_IsLocalAddress( cls.netchan.remote_address ) && !host_limitlocal.value ) || ( host.realtime >= cls.nextcmdtime && Netchan_CanPacket( &cls.netchan, true )))
+	// the loopback client normally sends a command packet every single frame to keep
+	// singleplayer as responsive as possible. on a listenserver that hands the game
+	// library several times the packets it expects, so keep the shortcut for
+	// singleplayer only, which the maxclients check already covers
+	if( cl.maxclients == 1 || ( host.realtime >= cls.nextcmdtime && Netchan_CanPacket( &cls.netchan, true )))
 		pcmd->heldback = false;
 	else pcmd->heldback = true;
 
@@ -3673,6 +3694,7 @@ static void CL_InitLocal( void )
 	// register our variables
 	Cvar_RegisterVariable( &cl_crosshair );
 	Cvar_RegisterVariable( &cl_nodelta );
+	Cvar_RegisterVariable( &bunnyhop );
 	Cvar_RegisterVariable( &cl_idealpitchscale );
 	Cvar_RegisterVariable( &cl_solid_players );
 	Cvar_RegisterVariable( &cl_interp );
