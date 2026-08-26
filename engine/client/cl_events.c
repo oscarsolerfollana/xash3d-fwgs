@@ -14,6 +14,7 @@ GNU General Public License for more details.
 */
 
 #include "common.h"
+#include "dbg_weapon.h"
 #include "client.h"
 #include "event_flags.h"
 #include "net_encode.h"
@@ -503,6 +504,9 @@ void GAME_EXPORT CL_PlaybackEvent( int flags, const edict_t *pInvoker, word even
 		Con_DPrintf( S_ERROR "%s: event %i was not precached\n", __func__, eventindex );
 		return;
 	}
+
+	DbgWeapon_Event( DBG_WEAPON_CL, cl.event_precache[eventindex], angles,
+		fparam1, fparam2, iparam1, iparam2, bparam1, bparam2 );
 
 	SetBits( flags, FEV_CLIENT ); // it's a client event
 	ClearBits( flags, FEV_NOTHOST|FEV_HOSTONLY|FEV_GLOBAL );

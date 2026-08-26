@@ -25,6 +25,7 @@ GNU General Public License for more details.
 #include <emscripten/emscripten.h>
 #endif
 #include "common.h"
+#include "dbg_weapon.h"
 #include "base_cmd.h"
 #include "client.h"
 #include "server.h"
@@ -1200,6 +1201,7 @@ int EXPORT Host_Main( int argc, char **argv, const char *progname, int bChangeGa
 	Cvar_RegisterVariable( &sv_hibernate_when_empty_sleep );
 	Cvar_RegisterVariable( &sv_background );
 	Cvar_RegisterVariable( &cl_background );
+	DbgWeapon_Init();
 
 	Cvar_Getf( "buildnum", FCVAR_READ_ONLY, "returns a current build number", "%i", Q_buildnum_compat());
 	Cvar_Getf( "ver", FCVAR_READ_ONLY, "shows an engine version", "%i/%s (hw build %i)", PROTOCOL_VERSION, XASH_COMPAT_VERSION, Q_buildnum_compat());

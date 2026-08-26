@@ -14,6 +14,7 @@ GNU General Public License for more details.
 */
 
 #include "common.h"
+#include "dbg_weapon.h"
 #include "server.h"
 #include "const.h"
 #include "pm_local.h"
@@ -991,6 +992,9 @@ void SV_RunCmd( sv_client_t *cl, usercmd_t *ucmd, int random_seed )
 	svgame.pmove->numtouch = 0;
 	svgame.globals->time = cl->timebase;
 	svgame.globals->frametime = frametime;
+
+	if( !FBitSet( cl->flags, FCL_FAKECLIENT ))
+		DbgWeapon_Clock( svgame.globals->time, svgame.globals->frametime, sv.time, cl->timebase );
 
 	// run post-think
 	svgame.dllFuncs.pfnPlayerPostThink( clent );

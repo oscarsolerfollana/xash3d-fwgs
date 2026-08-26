@@ -14,6 +14,7 @@ GNU General Public License for more details.
 */
 
 #include "common.h"
+#include "dbg_weapon.h"
 #include "server.h"
 #include "net_encode.h"
 #include "event_flags.h"
@@ -4024,6 +4025,9 @@ void GAME_EXPORT SV_PlaybackEventFull( int flags, const edict_t *pInvoker, word 
 		Con_Printf( S_ERROR "%s: event %i was not precached\n", __func__, eventindex );
 		return;
 	}
+
+	DbgWeapon_Event( DBG_WEAPON_SV, sv.event_precache[eventindex], angles,
+		fparam1, fparam2, iparam1, iparam2, bparam1, bparam2 );
 
 	memset( &args, 0, sizeof( args ));
 

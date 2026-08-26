@@ -14,6 +14,7 @@ GNU General Public License for more details.
 */
 
 #include "common.h"
+#include "dbg_weapon.h"
 #include "client.h"
 #include "mod_local.h"
 #include "net_encode.h"
@@ -1131,6 +1132,9 @@ void CL_ParseClientData( sizebuf_t *msg, connprotocol_t proto )
 		else MSG_ReadWeaponData( msg, &from_wd[idx], &to_wd[idx], cl.mtime[0] );
 	}
 
+	if( to_cd->m_iId > 0 && to_cd->m_iId < 64 )
+		DbgWeapon_Received( to_cd, &to_wd[to_cd->m_iId] );
+
 	// make a local copy of physinfo
 	Q_strncpy( cls.physinfo, frame->clientdata.physinfo, sizeof( cls.physinfo ));
 
@@ -1237,6 +1241,7 @@ set the view angle to this absolute value
 static void CL_ParseSetAngle( sizebuf_t *msg )
 {
 	MSG_ReadVec3Angles( msg, cl.viewangles );
+	DbgWeapon_ForcedAngle( "setangle", cl.viewangles[0], cl.viewangles[1], cl.viewangles[2] );
 }
 
 /*
@@ -1263,6 +1268,8 @@ static void CL_ParseAddAngle( sizebuf_t *msg )
 	// record update
 	a->starttime = cl.mtime[0];
 	a->total = cl.addangletotal;
+
+	DbgWeapon_ForcedAngle( "addangle", delta_yaw, cl.addangletotal, 0.0f );
 }
 
 /*
