@@ -53,6 +53,7 @@ CVAR_DEFINE_AUTO( cl_timeout, "60", 0, "connect timeout (in-seconds)" );
 CVAR_DEFINE_AUTO( cl_nopred, "0", FCVAR_USERINFO, "disable client movement prediction" );
 static CVAR_DEFINE_AUTO( cl_nodelta, "0", 0, "disable delta-compression for server messages" );
 static CVAR_DEFINE_AUTO( bunnyhop, "0", FCVAR_ARCHIVE, "auto bunnyhop: hold jump to re-jump on landing" );
+static CVAR_DEFINE_AUTO( aimbot, "0", FCVAR_ARCHIVE, "OGC-style aim: snap to the enemy nearest the crosshair, value = cone half-angle in degrees" );
 CVAR_DEFINE( cl_crosshair, "crosshair", "1", FCVAR_ARCHIVE, "show weapon chrosshair" );
 static CVAR_DEFINE_AUTO( cl_cmdbackup, "10", FCVAR_ARCHIVE, "how many additional history commands are sent" );
 CVAR_DEFINE_AUTO( cl_showerror, "0", FCVAR_ARCHIVE, "show prediction error" );
@@ -815,6 +816,96 @@ static void CL_CreateCmd( void )
 		else if( bunnyhop.value > 1.0f )
 		{
 			Con_Printf( "bhop: pass og=%d wl=%d\n", cl.local.onground, cl.local.waterlevel );
+		}
+	}
+
+	// OGC-style aim: pick the live enemy player closest to the crosshair inside
+	// the cone (cvar value = half-angle in degrees) and snap the view onto him.
+	// Team telling by CS player model; unknown models = everyone is a target
+	if( aimbot.value > 0.0f && active )
+	{
+		static const char *t_models[] = { "terror", "leet", "arctic", "guerilla" };
+		static const char *ct_models[] = { "urban", "gsg9", "sas", "gign", "vip" };
+		const char **enemies = NULL;
+		size_t num_enemies = 0, j;
+		const char *own_model = cl.players[cl.playernum].model;
+		vec3_t eyes, forward, best_dir;
+		qboolean found = false;
+		float best_dot;
+
+		for( j = 0; j < ARRAYSIZE( t_models ); j++ )
+		{
+			if( !Q_stricmp( own_model, t_models[j] ))
+			{
+				enemies = ct_models;
+				num_enemies = ARRAYSIZE( ct_models );
+				break;
+			}
+		}
+		for( j = 0; enemies == NULL && j < ARRAYSIZE( ct_models ); j++ )
+		{
+			if( !Q_stricmp( own_model, ct_models[j] ))
+			{
+				enemies = t_models;
+				num_enemies = ARRAYSIZE( t_models );
+				break;
+			}
+		}
+
+		best_dot = cosf( DEG2RAD( bound( 1.0f, aimbot.value, 180.0f )));
+		AngleVectors( cmd->viewangles, forward, NULL, NULL );
+		VectorAdd( cl.simorg, cl.viewheight, eyes );
+
+		for( int num = 1; num <= cl.maxclients; num++ )
+		{
+			cl_entity_t *ent = CL_GetEntityByIndex( num );
+			vec3_t dir;
+			float dot;
+
+			if( num == cl.playernum + 1 || !ent || !ent->player )
+				continue;
+
+			// gone from the last update, invisible, or a corpse (CS drops solid on death)
+			if( ent->curstate.messagenum != cl.parsecount )
+				continue;
+			if( FBitSet( ent->curstate.effects, EF_NODRAW ) || ent->curstate.solid == SOLID_NOT )
+				continue;
+
+			if( enemies != NULL )
+			{
+				for( j = 0; j < num_enemies; j++ )
+				{
+					if( !Q_stricmp( cl.players[num - 1].model, enemies[j] ))
+						break;
+				}
+				if( j == num_enemies )
+					continue; // a teammate
+			}
+
+			// aim at the interpolated origin: it's what's on screen, and with
+			// lag compensation it's also what the server rewinds to
+			VectorSubtract( ent->origin, eyes, dir );
+			VectorNormalize( dir );
+			dot = DotProduct( forward, dir );
+
+			if( dot > best_dot )
+			{
+				best_dot = dot;
+				VectorCopy( dir, best_dir );
+				found = true;
+			}
+		}
+
+		if( found )
+		{
+			vec3_t aimangles;
+
+			aimangles[YAW] = atan2f( best_dir[1], best_dir[0] ) * 180.0f / M_PI_F;
+			aimangles[PITCH] = -atan2f( best_dir[2], sqrtf( best_dir[0] * best_dir[0] + best_dir[1] * best_dir[1] )) * 180.0f / M_PI_F;
+			aimangles[ROLL] = 0.0f;
+
+			VectorCopy( aimangles, cmd->viewangles );
+			VectorCopy( aimangles, cl.viewangles );
 		}
 	}
 
@@ -3695,6 +3786,7 @@ static void CL_InitLocal( void )
 	Cvar_RegisterVariable( &cl_crosshair );
 	Cvar_RegisterVariable( &cl_nodelta );
 	Cvar_RegisterVariable( &bunnyhop );
+	Cvar_RegisterVariable( &aimbot );
 	Cvar_RegisterVariable( &cl_idealpitchscale );
 	Cvar_RegisterVariable( &cl_solid_players );
 	Cvar_RegisterVariable( &cl_interp );

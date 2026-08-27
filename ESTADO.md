@@ -542,6 +542,26 @@ arma que fija el propio CS). Función idéntica en ambos lados:
 aterrizar aún frena: sería la stamina (fuser2), mecanismo aparte — cazar si
 molesta.
 
+### Aimbot tipo OGC (28/08)
+
+Cvar **`aimbot`** (archivado), solo cliente, en `cl_main.c` junto al bunnyhop.
+Valor = medio ángulo del cono en grados (0 = off): `aimbot 15` solo engancha
+si el enemigo está a menos de 15° de la cruceta; `aimbot 180` = OGC a saco
+(gira a cualquiera). En cada `CL_CreateCmd` busca el jugador enemigo vivo más
+cercano a la cruceta y clava `cmd->viewangles` + `cl.viewangles` (snap
+visible, estilo OGC). Detalles:
+
+- Filtro de equipo por modelo de jugador de CS (terror/leet/arctic/guerilla
+  vs urban/gsg9/sas/gign/vip); si el modelo no se reconoce (otros mods),
+  todos los jugadores son objetivo.
+- Filtra muertos (solid == SOLID_NOT en CS), EF_NODRAW y entidades no
+  actualizadas en el último paquete. Apunta al origin interpolado (lo que se
+  ve en pantalla; con lag compensation es a lo que el servidor rebobina).
+- Sin comprobación de línea de visión: apunta a través de paredes (casa con
+  wallhack + sv_novis). Extra local, **jamás a upstream**.
+
+Pendiente de probar por Oscar.
+
 ---
 
 ## 12. Armas de la 2.5 en la 3.0: no se puede (26/08)
