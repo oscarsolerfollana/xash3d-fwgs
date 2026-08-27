@@ -1034,7 +1034,9 @@ void R_BeginFrame( qboolean clearScene )
 {
 	glConfig.softwareGammaUpdate = false;	// in case of possible fails
 
-	if(( gl_clear->value || ENGINE_GET_PARM( PARM_DEV_OVERVIEW )) &&
+	// wallhack: the translucent world doesn't repaint every pixel, so without
+	// a color clear the previous frame shows through as trails at low alpha
+	if(( gl_clear->value || wallhack.value > 0.0f || ENGINE_GET_PARM( PARM_DEV_OVERVIEW )) &&
 		clearScene && ENGINE_GET_PARM( PARM_CONNSTATE ) != ca_cinematic )
 	{
 		pglClear( GL_COLOR_BUFFER_BIT );
