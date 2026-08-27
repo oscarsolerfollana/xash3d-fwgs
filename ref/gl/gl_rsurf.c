@@ -1531,6 +1531,27 @@ static void R_RenderBrushPoly( msurface_t *fa, int cull_type )
 
 /*
 ================
+R_WallhackActive
+
+see-through walls: world and opaque brush models drawn translucent,
+without depth writes, so everything behind them stays visible.
+only the classic render path supports it, so it's a no-op with VBO on
+================
+*/
+static qboolean R_WallhackActive( void )
+{
+	return wallhack.value > 0.0f && !R_HasEnabledVBO();
+}
+
+static float R_WallhackAlpha( void )
+{
+	if( wallhack.value > 0.0f && wallhack.value < 1.0f )
+		return wallhack.value;
+	return 0.4f;
+}
+
+/*
+================
 R_DrawTextureChains
 ================
 */
@@ -1565,6 +1586,15 @@ static void R_DrawTextureChains( void )
 	}
 
 	R_DrawVBO( !r_fullbright->value && !!WORLDMODEL->lightdata, true );
+
+	if( R_WallhackActive( ))
+	{
+		pglEnable( GL_BLEND );
+		pglBlendFunc( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
+		pglTexEnvf( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE );
+		pglDepthMask( GL_FALSE );
+		pglColor4f( 1.0f, 1.0f, 1.0f, R_WallhackAlpha( ));
+	}
 
 	for( int i = 0; i < WORLDMODEL->numtextures; i++ )
 	{
@@ -1896,6 +1926,13 @@ void R_DrawBrushModel( cl_entity_t *e )
 
 	if( FBitSet( gp_host->features, ENGINE_QUAKE_COMPATIBLE ) && FBitSet( clmodel->flags, MODEL_TRANSPARENT ))
 		e->curstate.rendermode = kRenderTransAlpha;
+
+	// see-through walls: draw opaque brush models like TransTexture entities
+	if( R_WallhackActive( ) && e->curstate.rendermode == kRenderNormal )
+	{
+		e->curstate.rendermode = kRenderTransTexture;
+		tr.blend = R_WallhackAlpha( );
+	}
 
 	e->visframe = tr.realframecount; // visible
 
@@ -3723,15 +3760,34 @@ void R_DrawWorld( void )
 
 	if( !ENGINE_GET_PARM( PARM_DEV_OVERVIEW ))
 	{
-		DrawDecalsBatch();
-		GL_ResetFogColor();
-		R_BlendLightmaps();
-		R_RenderFullbrights( R_HasEnabledVBO( ));
-		R_RenderDetails( R_HasEnabledVBO() ? 2 : 3 );
-		R_DrawTriangleOutlines();
+		if( R_WallhackActive( ))
+		{
+			// skip decals and the lightmap pass: with no depth written they
+			// would draw over (and darken) everything seen through the walls
+			pglDisable( GL_BLEND );
+			pglDepthMask( GL_TRUE );
+			pglTexEnvi( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE );
+			pglColor4ub( 255, 255, 255, 255 );
+			GL_ResetFogColor();
+			R_RenderFullbrights( false );
+			R_RenderDetails( 3 );
+			R_DrawTriangleOutlines();
 
-		if( skychain )
-			R_DrawSkyBox();
+			if( skychain )
+				R_DrawSkyBox();
+		}
+		else
+		{
+			DrawDecalsBatch();
+			GL_ResetFogColor();
+			R_BlendLightmaps();
+			R_RenderFullbrights( R_HasEnabledVBO( ));
+			R_RenderDetails( R_HasEnabledVBO() ? 2 : 3 );
+			R_DrawTriangleOutlines();
+
+			if( skychain )
+				R_DrawSkyBox();
+		}
 	}
 
 	end = gEngfuncs.pfnTime();

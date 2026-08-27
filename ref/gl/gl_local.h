@@ -731,6 +731,7 @@ extern convar_t	r_nocull;
 extern convar_t	r_lockpvs;
 extern convar_t	r_lockfrustum;
 extern convar_t	r_traceglow;
+extern convar_t	wallhack;
 extern convar_t	r_vbo;
 extern convar_t	r_vbo_dlightmode;
 extern convar_t	r_vbo_detail;
