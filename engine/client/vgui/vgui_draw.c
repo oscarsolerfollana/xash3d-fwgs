@@ -48,6 +48,13 @@ typedef struct vgui_static_s
 
 	poolhandle_t mempool;
 
+	// panel translation while VGUI is painting: GoldSrc leaves a real GL
+	// translation to the panel origin active during paint(), which client
+	// SPR_* draws inherit. Xash's vgui_support keeps it in software, so the
+	// support library reports it here and we apply it to client sprites
+	qboolean in_paint;
+	int translate[2];
+
 	enum VGUI_KeyCode virtualKeyTrans[256];
 } vgui_static_t;
 
@@ -55,6 +62,7 @@ static vgui_static_t vgui = {
 	false, -1
 };
 static CVAR_DEFINE_AUTO( vgui_utf8, "0", FCVAR_ARCHIVE, "enable utf-8 support for vgui text" );
+static void GAME_EXPORT VGUI_SetTranslate( int x, int y );
 
 static void GAME_EXPORT VGUI_DrawInit( void )
 {
@@ -320,6 +328,7 @@ qboolean VGui_LoadProgs( HINSTANCE hInstance )
 	qboolean client = hInstance != NULL;
 
 	vgui.dllFuncs = gEngfuncs;
+	vgui.dllFuncs.SetTranslate = VGUI_SetTranslate;
 
 	// not loading interface from client.dll, load vgui_support.dll instead
 	if( !client )
@@ -597,10 +606,33 @@ void VGui_MouseMove( int x, int y )
 	}
 }
 
+static void GAME_EXPORT VGUI_SetTranslate( int x, int y )
+{
+	vgui.translate[0] = x;
+	vgui.translate[1] = y;
+}
+
+// while VGUI paints, report the active panel translation so client sprites
+// (SPR_DrawHoles etc., e.g. the NS pie menu) land inside their panel
+qboolean VGui_GetPaintTranslate( int *x, int *y )
+{
+	if( !vgui.in_paint )
+		return false;
+
+	if( x ) *x = vgui.translate[0];
+	if( y ) *y = vgui.translate[1];
+	return true;
+}
+
 void VGui_Paint( void )
 {
-	if( vgui.dllFuncs.Paint )
-		vgui.dllFuncs.Paint();
+	if( !vgui.dllFuncs.Paint )
+		return;
+
+	vgui.in_paint = true;
+	vgui.translate[0] = vgui.translate[1] = 0;
+	vgui.dllFuncs.Paint();
+	vgui.in_paint = false;
 }
 
 void VGui_UpdateInternalCursorState( VGUI_DefaultCursor cursorType )

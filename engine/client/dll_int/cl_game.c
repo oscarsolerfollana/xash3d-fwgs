@@ -405,6 +405,16 @@ static void SPR_DrawGeneric( int frame, float x, float y, float width, float hei
 		s2 = t2 = 1.0f;
 	}
 
+	// while VGUI paints, client sprites are given in panel-local coordinates
+	// (e.g. the NS pie menu), so shift them by the active panel translation,
+	// which GoldSrc applies as a real GL translation and Xash reports to us
+	int vgui_tx, vgui_ty;
+	if( VGui_GetPaintTranslate( &vgui_tx, &vgui_ty ))
+	{
+		x += vgui_tx;
+		y += vgui_ty;
+	}
+
 	// pass scissor test if supposed
 	if( !CL_Scissor( &clgame.ds.scissor, &x, &y, &width, &height, &s1, &t1, &s2, &t2 ))
 		return;

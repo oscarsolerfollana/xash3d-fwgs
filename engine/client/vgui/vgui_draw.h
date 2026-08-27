@@ -24,6 +24,7 @@ qboolean VGui_LoadProgs( HINSTANCE hInstance );
 void VGui_Startup( int width, int height );
 void VGui_Shutdown( void );
 void VGui_Paint( void );
+qboolean VGui_GetPaintTranslate( int *x, int *y );
 void VGui_RunFrame( void );
 void VGui_MouseEvent( int key, int clicks );
 void VGui_MWheelEvent( int y );

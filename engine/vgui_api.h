@@ -210,5 +210,9 @@ typedef struct  vguiapi_s
 	void	(*Key)( enum VGUI_KeyAction action, enum VGUI_KeyCode code );
 	void	(*MouseMove)( int x, int y );
 	void	(*TextInput)( const char *text );
+	// called from vgui_support (appended: keeps the offsets above stable for
+	// prebuilt vgui_support.dll). Reports the current panel translation during
+	// paint so the engine can apply it to client SPR_* draws, matching GoldSrc
+	void	(*SetTranslate)( int x, int y );
 } vguiapi_t;
 #endif // VGUI_API_H

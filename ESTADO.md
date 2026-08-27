@@ -962,6 +962,28 @@ El arreglo propuesto allí (traslación GL real) cubre ambos caminos.
 Convivencia mientras tanto: el menú responde a clics en sus posiciones
 correctas (centradas), aunque se pinte en la esquina.
 
+**ARREGLADO (28/08): motor + parche binario de vgui_support.dll.** Se hace lo
+que el #2728 proponía (paridad GoldSrc), en dos mitades:
+
+- **Motor** (limpio, commiteado): nueva engfunc `VGUI_SetTranslate` en el slot
+  0x80 de `vguiapi_t` (tras `TextInput`, al final para no mover offsets del dll
+  precompilado). Guarda el translate del panel activo; `VGui_Paint` lo pone a 0
+  y marca `in_paint`; `SPR_DrawGeneric` (cl_game.c) suma ese translate a las
+  coords mientras VGUI pinta (`VGui_GetPaintTranslate`). Los `SPR_*` del cliente
+  (menú T) caen en su panel, como en GoldSrc. TriAPI no se toca (el minimapa
+  sigue con su parche `gVGUIOffset=0`, coexisten).
+- **vgui_support.dll** (`patches/patch_vgui_tmenu.py`, no recompilable con
+  MinGW): `SetupPaintState` (VA 0x100074c0, thiscall) reporta su translate
+  llamando `g_api->SetTranslate(_translateX,_translateY)` al final. Hook: el
+  epílogo en VA 0x1000752b (`pop ebx; ret 4`) salta a un code cave al final de
+  .text (VA 0x1007f34a, relleno de 00) que hace la llamada y retorna. `g_api`
+  global en 0x100ac36c. Afecta NS y Firearms (solo AÑADE el reporte; el motor
+  solo lo aplica a SPR_* durante paint). Backup en `.orig`.
+
+Pendiente: verificar por Oscar (menú T centrado, y que Firearms sigue bien). Si
+va, es el segundo caso del PR/issue #2728 resuelto de verdad — candidato a
+proponer a FWGS el arreglo en vgui_support (ellos sí lo recompilan con MSVC).
+
 ### EvoBot instalado en el NS de Steam (27/08)
 
 Mismo montaje que en Xash, copiado desde ns33/addons: `addons/metamod` (p109) +
