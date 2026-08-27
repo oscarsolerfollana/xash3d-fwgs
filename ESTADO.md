@@ -831,3 +831,9 @@ Pendientes de decidir:
   https://github.com/RGreenlees/evobot_mm/issues/24#issuecomment-5432876921
 - Pendiente opcional: PR a FWGS con el guard NaN de pm_trace.c (commit de351618
   en local/oscar; el diff son dos comparaciones invertidas).
+
+### PR #2729 abierto: guard NaN en pm_trace (27/08)
+
+https://github.com/FWGS/xash3d-fwgs/pull/2729 — rama `fix/pm-trace-nan-hang`,
+diff 6+/2- (los dos clamps invertidos + comentarios). Cruza referencias con
+evobot_mm#24. Verificación citada: el cuelgue de ~10-15 min con bots desaparece.
