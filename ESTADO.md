@@ -893,29 +893,72 @@ cambian. Verificado en juego antes de subir.
 
 ---
 
-## 16. PROBLEMA ABIERTO para mañana: soldar escotillas no funciona (27/08, noche)
+## 16. Soldar escotillas: CAUSA CAZADA Y ARREGLO INSTALADO (28/08)
 
 Síntoma (NS 3.3 sobre Xash, reportado por Oscar): el welder del marine contra
 escotillas/weldables **no hace nada** — ni interactúa, ni ruido, ni progreso.
-(Pendiente confirmar: ¿en Steam sí funciona? — seguramente sí, como siempre.)
+**Confirmado por Oscar: en Steam sí funciona.**
 
-Pistas para empezar mañana, del conocimiento acumulado esta semana:
+### Causa raíz (28/08, por fuente — sin necesidad de desensamblar)
 
-1. **`AvHWeldable.cpp`** (main/source/mod/) — salió en el grep de `iuser3` del
-   día del physent: los weldables usan campos iuser. Leer cómo detecta el mod
-   que le estás soldando: ¿traza desde el arma? ¿Use? ¿daño?
-2. El welder dispara en continuo — sospechosos con antecedentes:
-   - **Trazas** (pfnTraceLine/PM): ya cazamos el NaN y el physent rancio ahí.
-     ¿La traza del welder no golpea el weldable? (¿solid raro? ¿pasa a través?)
-   - **Eventos** (el efecto/ruido del welder va por evento tipo Welder.sc —
-     mirar en ns/events/): si el evento no suena ni pinta, quizá ni se dispara
-     → el problema estaría antes, en el arma del servidor.
-   - Campos de entidad networked (iuser3/fuser) — el HUD del welder y el
-     progreso pueden depender de ellos.
-3. Método que funcionó toda la semana: reproducir con `dbg`/logs, comparar
-   Steam vs Xash, desensamblar solo si hace falta, experimento mínimo.
-4. Ojo: el arreglo del physent (state->solid) ya está puesto — si los weldables
-   son SOLID_BSP y algo los confunde, sería otro camino distinto.
+Fuente de NS clonado en `C:\Users\Oscar\Proyectos\xash3d-tools\NS-source`
+(ENSL/NS, el 3.3 que jugamos).
+
+- El welder detecta su objetivo con una **`UTIL_TraceLine` del servidor**
+  (`AvHWelder::FireProjectiles`) y un `dynamic_cast<AvHWeldable*>` de `tr.pHit`.
+  Si la traza no toca el weldable, no hay soldadura, ni ruido, ni progreso
+  (el evento de chispas solo se dispara si `theDidWeld`). Encaja el síntoma
+  entero.
+- `AvHWeldable::SetPEVFlagsFromState()` pone a los weldables que **no** se
+  abren al soldar (sin spawnflag 2) un **`pev->solid = 5`** a pelo — valor
+  fuera del enum del SDK (SOLID_BSP es 4).
+- En **GoldSrc** solid=5 cae por la rama genérica de `SV_HullForEntity`:
+  colisiona/se traza como su **caja** (mins/maxs). Por eso funciona en Steam.
+- En **Xash** 5 es **`SOLID_CUSTOM`** (extensión para colisión custom vía
+  physics interface). NS no implementa el interface, y los cuatro caminos
+  (`SV_CustomClipMoveToEntity`, `SV_ClipPMoveToEntity`, `CL_ClipPMoveToEntity`,
+  `pfnTraceModel`) responden "no tocado" si faltan los callbacks. El weldable
+  es un **fantasma para todas las trazas**: la del welder lo atraviesa y pega
+  en lo que haya detrás.
+
+Los weldables que SÍ se abren al soldar (spawnflag 2) son SOLID_BSP y no
+sufren esto. Censo por mapa (script `dump_weldables.py` en el scratchpad):
+ns_ayumi/ns_eclipse/ns_askr/ns_origin/ns_ragnarok... = solid 5 (rotos);
+ns_machina/co_faceoff/ns_hera = mayoría spawnflag 2/3 (deberían funcionar
+incluso sin el fix).
+
+### Arreglo aplicado (28/08, compilado e instalado; PENDIENTE de verificar)
+
+Paridad GoldSrc: si el mod no provee physics interface, un SOLID_CUSTOM se
+recorta como caja (que es lo único que solid=5 significa en GoldSrc):
+
+- `engine/server/sv_world.c` — `SV_CustomClipMoveToEntity`: fallback a
+  `SV_ClipMoveToEntity` (su `SV_HullForEntity` ya hace hull de caja para
+  solids no-BSP) en vez de "no hit". **Este es el que arregla el welder.**
+- `engine/common/pm_trace.c` — helper `PM_CustomClipAvailable()`; en
+  `PM_PlayerTraceExt` y `PM_TestPlayerPosition`, si no hay callback el
+  solid=5 cae por la rama de caja existente (paridad también en el movimiento
+  del jugador: en GoldSrc estas cajas SÍ bloquean al jugador).
+- `engine/server/sv_pmove.c` / `engine/client/dll_int/cl_pmove.c` —
+  `SV_HasClipPMoveToEntity()` / `CL_HasClipPMoveToEntity()` (declarados en
+  `common.h`).
+
+Mods tipo Paranoia 2 que usan SOLID_CUSTOM de verdad implementan el interface
+→ no les cambia nada.
+
+### Prueba para Oscar
+
+`test_welder.bat` — ns_ayumi (todas sus soldables son del tipo roto), unirse a
+marines, `give weapon_welder`, soldar una rejilla. Mirar: chispas + ruido +
+barra de progreso + que al acabar dispare su puerta. Control opcional en
+ns_machina (el otro tipo de weldable).
+
+OJO pendiente de aclarar con Oscar: ¿en qué mapa vio el fallo? Si fue en
+ns_machina (weldables spawnflag 3, SOLID_BSP), habría un segundo problema
+distinto que este fix no cubre.
+
+Si se verifica: candidato a PR #5 a FWGS (diagnóstico completo listo; citar
+NS 3.2/3.3 como mod afectado de su lista soportada).
 
 Estado general al cierre del 27/08: PRs #2726 (aprobado), #2729 y #2730
 (abiertos) esperando; #1371, #2728 y evobot#24 esperando respuesta; todo lo
