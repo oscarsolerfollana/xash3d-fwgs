@@ -48,22 +48,8 @@ typedef struct vgui_static_s
 
 	poolhandle_t mempool;
 
-	// see-through walls / panel-local sprites: GoldSrc leaves a real GL
-	// translation to the panel origin active during a panel's paint(), which
-	// client SPR_* draws (e.g. the NS pie menu) inherit. Xash's vgui_support
-	// keeps that translation in software (surface->_translateX/Y), so during
-	// paint we read it straight from the surface object and apply it ourselves.
-	qboolean in_paint;
-	void * const *surface_global;	// address of vgui_support's CEngineSurface* global, or NULL
-
 	enum VGUI_KeyCode virtualKeyTrans[256];
 } vgui_static_t;
-
-// vgui_support.dll internals (prebuilt, MinGW can't relink it): the CEngineSurface*
-// global and the byte offset of its _translateX/_translateY pair. Read via the real
-// loaded base (hInstance), so ASLR is handled.
-#define VGUI_SUPPORT_SURFACE_RVA   0xac368
-#define VGUI_SUPPORT_TRANSLATE_OFF 0x24
 
 static vgui_static_t vgui = {
 	false, -1
@@ -359,10 +345,6 @@ qboolean VGui_LoadProgs( HINSTANCE hInstance )
 			Con_Reportf( S_ERROR "Failed to load vgui_support library: %s\n", COM_GetLibraryError() );
 			return false;
 		}
-
-		// locate vgui_support's surface global so we can read the active panel
-		// translation during paint (see VGui_GetPaintTranslate)
-		vgui.surface_global = (void * const *)(( const byte *)vgui.hInstance + VGUI_SUPPORT_SURFACE_RVA );
 	}
 
 	// try legacy API first
@@ -615,35 +597,10 @@ void VGui_MouseMove( int x, int y )
 	}
 }
 
-// while VGUI paints, hand back the active panel's translation so client sprites
-// (SPR_DrawHoles etc., e.g. the NS pie menu) land inside their panel, as GoldSrc
-// does. Read live from vgui_support's surface object.
-qboolean VGui_GetPaintTranslate( int *x, int *y )
-{
-	const void *surf;
-	const int *translate;
-
-	if( !vgui.in_paint || !vgui.surface_global )
-		return false;
-
-	surf = *vgui.surface_global;
-	if( !surf )
-		return false;
-
-	translate = (const int *)(( const byte *)surf + VGUI_SUPPORT_TRANSLATE_OFF );
-	if( x ) *x = translate[0];
-	if( y ) *y = translate[1];
-	return true;
-}
-
 void VGui_Paint( void )
 {
-	if( !vgui.dllFuncs.Paint )
-		return;
-
-	vgui.in_paint = true;
-	vgui.dllFuncs.Paint();
-	vgui.in_paint = false;
+	if( vgui.dllFuncs.Paint )
+		vgui.dllFuncs.Paint();
 }
 
 void VGui_UpdateInternalCursorState( VGUI_DefaultCursor cursorType )

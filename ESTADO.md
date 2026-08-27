@@ -977,31 +977,44 @@ El arreglo propuesto allí (traslación GL real) cubre ambos caminos.
 Convivencia mientras tanto: el menú responde a clics en sus posiciones
 correctas (centradas), aunque se pinte en la esquina.
 
-**ARREGLADO (28/08): SOLO en el motor, leyendo el translate del surface de
-vgui_support.** Paridad GoldSrc (lo que propone el #2728), sin tocar el binario:
+**NO arreglado (28/08). Intentos revertidos, motor otra vez limpio.** El pie
+menu del **3.3 (botón derecho, la T era la 3.2)** resultó ser un bicho distinto
+al que suponíamos. Diagnóstico con instrumentación (logs `[spr]`, `[vgui]`,
+`[vguipaint]` en el motor, ya retirados):
 
-- `VGui_Paint` marca `in_paint`; `SPR_DrawGeneric` (cl_game.c) suma el translate
-  del panel activo a las coords de los `SPR_*` del cliente durante el paint
-  (`VGui_GetPaintTranslate`). Los sprites del menú T caen en su panel, como en
-  GoldSrc. TriAPI no se toca (el minimapa sigue con `gVGUIOffset=0`, coexisten).
-- El translate lo lee el motor **directo del objeto surface** de vgui_support:
-  la global `surface` (CEngineSurface*) está en RVA 0x0ac368 del dll, y
-  `_translateX/Y` en offset 0x24/0x28 del objeto. Se accede vía
-  `vgui.hInstance + RVA` (la base REAL cargada), así que el ASLR del dll no
-  molesta. Constantes en `vgui_draw.c` (`VGUI_SUPPORT_SURFACE_RVA`,
-  `VGUI_SUPPORT_TRANSLATE_OFF`), verificadas por desensamblado.
+- **El pie menu NO usa `SPR_*`.** En toda una sesión con el menú abierto salió
+  UNA sola llamada a `SPR_DrawGeneric` (HUD normal, esquina). O sea dibuja con
+  **TriAPI** (`FadingImageLabel` rama `!mImageMode` → `pTriAPI->Vertex3fv`
+  directo; ver AvHFadingImageLabel). El análisis viejo («usa SPR_DrawHoles»)
+  era del 3.2/otro widget.
+- **El translate NO está en el surface de vgui_support.** Leído bien (RVA
+  0x0ac368 del dll, offset 0x24 del objeto, base recuperada del export InitAPI
+  RVA 0x71e0 — la global `vgui.hInstance` NO es la base del módulo, es un handle
+  interno de Xash; hay que derivar la base de una dirección de export), da
+  **0,0** todo el rato durante el pie menu. El cliente de NS pinta su VGUI con
+  **su propio surface** (client.dll), no el del engine.
 
-Historia (para no repetir): el primer intento fue un parche binario de
-vgui_support (`g_api->SetTranslate`), y falló dos veces: (1) hookeó una copia
-MUERTA de `SetupPaintState` (0x100074c0, 0 refs; el código vivo está inline en
-`pushMakeCurrent`); (2) al mover el hook al código vivo, PETÓ porque el dll
-tiene **DYNAMIC_BASE (ASLR)** y el código inyectado usaba direcciones absolutas
-sin relocaciones. La lección: para tocar vgui_support desde fuera, leer sus
-globales vía `hInstance+RVA` (no inyectar código con direcciones fijas).
+Por qué es difícil de rematar: el offset del panel del pie menu vive en el
+surface del **client.dll de NS** (binario del mod), y el dibujo va por
+**pTriAPI directo** con coords locales — no hay un punto de neutralización
+simple como el `gVGUIOffset` del minimapa (ese era `AvHSpriteDraw`; el pie menu
+no pasa por ahí). Arreglarlo pediría, o bien parchear el client.dll de NS en
+varios sitios, o que el motor aplique el offset a los `Vertex3fv` del TriAPI
+durante el paint del panel (y el motor no sabe cuándo el CLIENTE pinta un panel
+ni con qué offset).
 
-Pendiente: verificar por Oscar (menú T centrado, Firearms sigue bien). Si va, es
-el 2º caso del #2728 resuelto — para el PR a FWGS, el arreglo canónico sigue
-siendo en el fuente de vgui_support (traslación GL real; ellos compilan MSVC).
+Intentos descartados (todos revertidos): (1) parche binario de vgui_support
+(`g_api->SetTranslate`) — falló, hookeó una copia MUERTA de `SetupPaintState`
+(0x100074c0, 0 refs; el vivo está inline en `pushMakeCurrent`); al moverlo al
+código vivo PETÓ por **DYNAMIC_BASE (ASLR)**: código inyectado con direcciones
+absolutas sin relocaciones. (2) motor lee el surface de vgui_support + aplica en
+`SPR_DrawGeneric` — no sirve (pie menu no usa SPR_ ni ese surface).
+
+**Decisión:** aparcado. a1batross dice que vgui_support se retira (freevgui),
+así que no hay PR upstream, y el ROI local es bajo (menú funcional, solo mal
+pintado — responde a clics en su sitio). Si algún día se retoma: el camino es el
+surface del client.dll de NS + el TriAPI, no vgui_support. El minimapa (que SÍ
+arreglamos, `gVGUIOffset=0`) sigue bien y es independiente.
 
 ### EvoBot instalado en el NS de Steam (27/08)
 
