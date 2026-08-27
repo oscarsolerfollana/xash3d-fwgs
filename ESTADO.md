@@ -1016,6 +1016,32 @@ pintado — responde a clics en su sitio). Si algún día se retoma: el camino e
 surface del client.dll de NS + el TriAPI, no vgui_support. El minimapa (que SÍ
 arreglamos, `gVGUIOffset=0`) sigue bien y es independiente.
 
+### Confirmado por el fuente de NS (28/08)
+
+Fuente en `xash3d-tools/NS-source` (ENSL/NS 3.3). Los ICONOS del pie menu son
+`FadingImageLabel` con `mImageMode=false` (por defecto) → `pTriAPI->Vertex3fv`
+DIRECTO con coords locales del panel, y **sin** `AvHSpriteBeginFrame` (a
+diferencia del minimapa/cursor comandante, que sí reconstruyen proyección y por
+eso se arreglaron con `gVGUIOffset`). Los iconos dependen 100% de la traslación
+GL al origen del panel que GoldSrc deja activa en `pushMakeCurrent`; Xash la
+hace en software → caen en la esquina. Los conectores (`PieNode::paintBackground`)
+sí usan `SPR_DrawHoles`, pero solo aparecen al desplegar submenús.
+
+### Plan para el menú (cuando se retome)
+
+1. **Esperar a freevgui y PROBAR.** Cuando FWGS publique freevgui, instalar y
+   abrir el menú. **Predicción: seguirá roto** — el diagnóstico (translate 0 en
+   el surface del engine) apunta a que NS pinta su HUD/menús con SU PROPIO
+   surface (el client.dll de NS linkea la vgui.dll de Valve y crea el suyo), no
+   el del engine. freevgui reemplaza el del engine → pieza equivocada. Solo se
+   arreglaría solo si el menú usa el surface del engine Y freevgui hace la
+   traslación como matriz GL real; el primer «si» probablemente es falso.
+2. **Si sigue roto: parche binario del `client.dll` de NS.** Hacer que
+   `FadingImageLabel` (rama TriAPI) SUME la posición absoluta del panel
+   (getAbsExtents/getPos) a las coords del Vertex3fv. Análogo al del minimapa
+   pero al revés (sumar el offset en vez de neutralizarlo). Reversing de verdad,
+   para algo cosmético — decidir si compensa.
+
 ### EvoBot instalado en el NS de Steam (27/08)
 
 Mismo montaje que en Xash, copiado desde ns33/addons: `addons/metamod` (p109) +
