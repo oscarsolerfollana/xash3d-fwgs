@@ -861,3 +861,7 @@ GoldSrc es el hábitat nativo de metamod: no hacen falta bugcomps.
 OJO: el cuelgue NaN de EvoBot (issue #24) SÍ puede darse en Steam — GoldSrc
 lleva el mismo código de trazas de Quake sin guard (nuestro arreglo protege
 solo a Xash). Si el juego se congela a los ~10-15 min, es eso.
+
+Confirmación A/B (27/08): con el MISMO NS 3.3b9 instalado en ambos motores, el
+menú de la T se ve centrado en Steam/GoldSrc y en la esquina en Xash. Única
+variable: el motor. El diagnóstico del #2728 queda verificado empíricamente.
