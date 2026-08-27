@@ -865,3 +865,21 @@ solo a Xash). Si el juego se congela a los ~10-15 min, es eso.
 Confirmación A/B (27/08): con el MISMO NS 3.3b9 instalado en ambos motores, el
 menú de la T se ve centrado en Steam/GoldSrc y en la esquina en Xash. Única
 variable: el motor. El diagnóstico del #2728 queda verificado empíricamente.
+
+### Disparo del lerk opaco — CAZADO Y ARREGLADO (27/08)
+
+Síntoma: el proyectil de esporas del lerk, mancha verde opaca en Xash
+(translúcido en Steam). Cadena demostrada con experimentos limpios en valve:
+
+1. `spore2.spr` es SPR_INDEXALPHA; la nube (AvHSpores) lo usa con TransAlpha
+   → env_sprite con rendermode 2: TRANSPARENTE en Xash ✓ (motor absuelto ahí).
+2. El disparo visible es un TEMPENT del evento (`ShootCloud` en AvHEvents.cpp)
+   que NUNCA fija rendermode → kRenderNormal.
+3. env_sprite en modo normal: OPACO en Xash (predicción confirmada por Oscar).
+   Causa: `R_DrawSpriteModel` en modo normal hace glDisable(GL_BLEND) ignorando
+   el texFormat; GoldSrc (herencia Quake) dibuja según el formato del sprite.
+
+**Arreglo (commit 018e2593, local/oscar):** en rendermode normal, derivar el
+blending del texFormat (ADDITIVE→aditivo, INDEXALPHA→alpha). Instalado.
+Pendiente: verificar en NS (lerk) y decidir PR a FWGS (candidato número 4;
+reproducción mínima sin mod: un .spr indexalpha + ent_create env_sprite).
