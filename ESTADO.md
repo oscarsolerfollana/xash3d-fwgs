@@ -492,6 +492,14 @@ Cómo funciona (`ref/gl/gl_rsurf.c`):
   ya existe; el motor ya mutaba/restauraba el rendermode ahí para Quake).
 - Solo camino clásico: con `gl_vbo 1` se desactiva solo (`R_WallhackActive`).
   Los configs de Oscar tienen gl_vbo 0.
+- PVS: con wallhack activo `R_MarkLeaves` marca el mapa entero (como
+  `r_novis 1`), si no las habitaciones detrás de las paredes ni se pintaban
+  (primer reporte de Oscar: «en ciertos ángulos no se ve todo»). El toggle
+  fuerza recálculo vía FCVAR_CHANGED, igual que r_novis.
+
+Límite conocido: los JUGADORES muy lejanos pueden seguir sin verse aunque la
+geometría sí se pinte — el servidor no manda entidades fuera del PVS del
+cliente (culling de red, lado servidor). Si molesta, es ataque aparte.
 
 Verificado por Oscar: pendiente.
 
