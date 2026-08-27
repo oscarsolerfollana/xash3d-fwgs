@@ -798,3 +798,25 @@ Steam, con bots). El `ns/` (3.2) sigue ahí también.
   `+cmd;-cmd` (con el argumento de que ningún bind puede depender del
   comportamiento actual de Xash para ese idioma) y ofreciendo PR o bugcomp:
   https://github.com/FWGS/xash3d-fwgs/issues/1371#issuecomment-5432105010
+
+### Cuelgue de NS con bots a los ~10-15 min (27/08) — CAZADO EN CALIENTE
+
+Oscar jugando ns33 con bots: cuelgue (no crash). El proceso seguía vivo y se
+atachó gdb ANTES de matarlo. Pila del hilo principal, sin ambigüedad:
+
+- EvoBot (`evobot_mm.dll`) llama a `pfnTraceLine` del servidor con coordenadas
+  **NaN** (bug de EvoBot, probablemente vector sin inicializar en su IA).
+- El motor: `SV_Move → SV_ClipMoveToEntity → PM_RecursiveHullCheck`
+  (`pm_trace.c`): con NaN, los clamps de `frac` (comparaciones normales) no
+  atrapan nada y el bucle «backing up» de la línea ~299 itera para siempre
+  (`frac -= 0.1` sobre NaN sigue NaN, `frac < 0` nunca). Cuelgue del hilo.
+
+**Arreglo aplicado (commit `de351618` en local/oscar):** clamps en forma
+NaN-segura (`!( frac >= 0.0f )`) en los dos puntos. Números normales: idéntico;
+NaN: sale por la vía del aviso «trace backed up». Compilado e instalado.
+
+Pendientes de decidir:
+- PR a FWGS (candidato claro: robustez del motor ante input del game dll).
+- Issue a RGreenlees/evobot_mm con la pila (el NaN es bug suyo — aunque cabe que
+  el vector NaN nazca de algo que Xash entrega distinto; con el guard puesto, si
+  vuelve a pasar el juego seguirá vivo y el aviso en consola delatará el momento).
