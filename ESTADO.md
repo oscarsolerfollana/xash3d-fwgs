@@ -851,3 +851,13 @@ https://github.com/FWGS/xash3d-fwgs/issues/2728#issuecomment-5433010560
 El arreglo propuesto allí (traslación GL real) cubre ambos caminos.
 Convivencia mientras tanto: el menú responde a clics en sus posiciones
 correctas (centradas), aunque se pinte en la esquina.
+
+### EvoBot instalado en el NS de Steam (27/08)
+
+Mismo montaje que en Xash, copiado desde ns33/addons: `addons/metamod` (p109) +
+`addons/evobot` (1.21, nsversion=33, fillteams, 33 navmeshes), `plugins.ini`,
+`config.ini` (gamedll dlls/ns.dll) y `liblist.gam` apuntando a metamod.
+GoldSrc es el hábitat nativo de metamod: no hacen falta bugcomps.
+OJO: el cuelgue NaN de EvoBot (issue #24) SÍ puede darse en Steam — GoldSrc
+lleva el mismo código de trazas de Quake sin guard (nuestro arreglo protege
+solo a Xash). Si el juego se congela a los ~10-15 min, es eso.
