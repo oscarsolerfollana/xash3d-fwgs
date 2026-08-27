@@ -3815,10 +3815,11 @@ void R_MarkLeaves( void )
 	if( !FBitSet( RI.rvp.flags, RF_DRAW_WORLD ))
 		return;
 
-	if( FBitSet( r_novis.flags, FCVAR_CHANGED ) || tr.fResetVis )
+	if( FBitSet( r_novis.flags, FCVAR_CHANGED ) || FBitSet( wallhack.flags, FCVAR_CHANGED ) || tr.fResetVis )
 	{
 		// force recalc viewleaf
 		ClearBits( r_novis.flags, FCVAR_CHANGED );
+		ClearBits( wallhack.flags, FCVAR_CHANGED );
 		tr.fResetVis = false;
 		RI.viewleaf = NULL;
 	}
@@ -3849,7 +3850,8 @@ void R_MarkLeaves( void )
 	RI.oldviewleaf = RI.viewleaf;
 	tr.visframecount++;
 
-	if( r_novis.value || FBitSet( RI.rvp.flags, RF_DRAW_OVERVIEW ) || !RI.viewleaf || !WORLDMODEL->visdata )
+	// see-through walls need the whole map, not just the PVS of this leaf
+	if( r_novis.value || R_WallhackActive( ) || FBitSet( RI.rvp.flags, RF_DRAW_OVERVIEW ) || !RI.viewleaf || !WORLDMODEL->visdata )
 		novis = true;
 
 	gEngfuncs.R_FatPVS( RI.rvp.vieworigin, r_pvs_radius->value, RI.visbytes, false, novis );
