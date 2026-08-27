@@ -472,6 +472,31 @@ aire, `pass og=... wl=...` cuando lo deja pasar.
 
 ---
 
+## 11-bis. Extra: wallhack (28/08)
+
+Cvar **`wallhack`** (archivado), solo render (ref_gl), vale para cualquier mod y
+también de cliente en servidores ajenos (no toca nada del juego, solo cómo se
+pinta). Con `wallhack 1`: el mundo y los brush models opacos (puertas, etc.) se
+pintan translúcidos (alpha 0.4) **sin escribir depth**, así que jugadores,
+items y efectos se ven a través de las paredes. Un valor entre 0 y 1
+(`wallhack 0.15`) elige la opacidad. Es un extra local, **no va a upstream**.
+
+Cómo funciona (`ref/gl/gl_rsurf.c`):
+- Mundo: en `R_DrawTextureChains`, blend SRC_ALPHA + MODULATE + color con alpha
+  + `glDepthMask(FALSE)`. En el remate de `R_DrawWorld` se saltan decals y la
+  pasada de lightmaps (sin depth escrita, multiplicarían/pintarían encima de lo
+  que se ve a través); las lumas (`R_RenderFullbrights`) se dejan — brillan a
+  través de las paredes, y de paso limpian su separate pass.
+- Brush models: en `R_DrawBrushModel`, si rendermode es normal se fuerza
+  `kRenderTransTexture` con `tr.blend` = alpha (el camino de translúcidos que
+  ya existe; el motor ya mutaba/restauraba el rendermode ahí para Quake).
+- Solo camino clásico: con `gl_vbo 1` se desactiva solo (`R_WallhackActive`).
+  Los configs de Oscar tienen gl_vbo 0.
+
+Verificado por Oscar: pendiente.
+
+---
+
 ## 12. Armas de la 2.5 en la 3.0: no se puede (26/08)
 
 Oscar quería el arsenal de la 2.5 **añadido** al de la 3.0 (sin sustituir). Investigado
@@ -927,7 +952,7 @@ ns_ayumi/ns_eclipse/ns_askr/ns_origin/ns_ragnarok... = solid 5 (rotos);
 ns_machina/co_faceoff/ns_hera = mayoría spawnflag 2/3 (deberían funcionar
 incluso sin el fix).
 
-### Arreglo aplicado (28/08, compilado e instalado; PENDIENTE de verificar)
+### Arreglo aplicado (28/08, compilado e instalado; VERIFICADO por Oscar el 28/08)
 
 Paridad GoldSrc: si el mod no provee physics interface, un SOLID_CUSTOM se
 recorta como caja (que es lo único que solid=5 significa en GoldSrc):
