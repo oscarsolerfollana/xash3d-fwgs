@@ -890,3 +890,33 @@ https://github.com/FWGS/xash3d-fwgs/pull/2730 — rama
 `fix/sprite-texformat-normal-mode`. Cuerpo corto a peticion de Oscar:
 sintoma, repro de un comando, y nota de que los rendermode explicitos no
 cambian. Verificado en juego antes de subir.
+
+---
+
+## 16. PROBLEMA ABIERTO para mañana: soldar escotillas no funciona (27/08, noche)
+
+Síntoma (NS 3.3 sobre Xash, reportado por Oscar): el welder del marine contra
+escotillas/weldables **no hace nada** — ni interactúa, ni ruido, ni progreso.
+(Pendiente confirmar: ¿en Steam sí funciona? — seguramente sí, como siempre.)
+
+Pistas para empezar mañana, del conocimiento acumulado esta semana:
+
+1. **`AvHWeldable.cpp`** (main/source/mod/) — salió en el grep de `iuser3` del
+   día del physent: los weldables usan campos iuser. Leer cómo detecta el mod
+   que le estás soldando: ¿traza desde el arma? ¿Use? ¿daño?
+2. El welder dispara en continuo — sospechosos con antecedentes:
+   - **Trazas** (pfnTraceLine/PM): ya cazamos el NaN y el physent rancio ahí.
+     ¿La traza del welder no golpea el weldable? (¿solid raro? ¿pasa a través?)
+   - **Eventos** (el efecto/ruido del welder va por evento tipo Welder.sc —
+     mirar en ns/events/): si el evento no suena ni pinta, quizá ni se dispara
+     → el problema estaría antes, en el arma del servidor.
+   - Campos de entidad networked (iuser3/fuser) — el HUD del welder y el
+     progreso pueden depender de ellos.
+3. Método que funcionó toda la semana: reproducir con `dbg`/logs, comparar
+   Steam vs Xash, desensamblar solo si hace falta, experimento mínimo.
+4. Ojo: el arreglo del physent (state->solid) ya está puesto — si los weldables
+   son SOLID_BSP y algo los confunde, sería otro camino distinto.
+
+Estado general al cierre del 27/08: PRs #2726 (aprobado), #2729 y #2730
+(abiertos) esperando; #1371, #2728 y evobot#24 esperando respuesta; todo lo
+local funcionando (bípode, sprint, bunnyhop, physents, NaN, minimapa, lerk).
