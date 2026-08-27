@@ -962,27 +962,31 @@ El arreglo propuesto allí (traslación GL real) cubre ambos caminos.
 Convivencia mientras tanto: el menú responde a clics en sus posiciones
 correctas (centradas), aunque se pinte en la esquina.
 
-**ARREGLADO (28/08): motor + parche binario de vgui_support.dll.** Se hace lo
-que el #2728 proponía (paridad GoldSrc), en dos mitades:
+**ARREGLADO (28/08): SOLO en el motor, leyendo el translate del surface de
+vgui_support.** Paridad GoldSrc (lo que propone el #2728), sin tocar el binario:
 
-- **Motor** (limpio, commiteado): nueva engfunc `VGUI_SetTranslate` en el slot
-  0x80 de `vguiapi_t` (tras `TextInput`, al final para no mover offsets del dll
-  precompilado). Guarda el translate del panel activo; `VGui_Paint` lo pone a 0
-  y marca `in_paint`; `SPR_DrawGeneric` (cl_game.c) suma ese translate a las
-  coords mientras VGUI pinta (`VGui_GetPaintTranslate`). Los `SPR_*` del cliente
-  (menú T) caen en su panel, como en GoldSrc. TriAPI no se toca (el minimapa
-  sigue con su parche `gVGUIOffset=0`, coexisten).
-- **vgui_support.dll** (`patches/patch_vgui_tmenu.py`, no recompilable con
-  MinGW): `SetupPaintState` (VA 0x100074c0, thiscall) reporta su translate
-  llamando `g_api->SetTranslate(_translateX,_translateY)` al final. Hook: el
-  epílogo en VA 0x1000752b (`pop ebx; ret 4`) salta a un code cave al final de
-  .text (VA 0x1007f34a, relleno de 00) que hace la llamada y retorna. `g_api`
-  global en 0x100ac36c. Afecta NS y Firearms (solo AÑADE el reporte; el motor
-  solo lo aplica a SPR_* durante paint). Backup en `.orig`.
+- `VGui_Paint` marca `in_paint`; `SPR_DrawGeneric` (cl_game.c) suma el translate
+  del panel activo a las coords de los `SPR_*` del cliente durante el paint
+  (`VGui_GetPaintTranslate`). Los sprites del menú T caen en su panel, como en
+  GoldSrc. TriAPI no se toca (el minimapa sigue con `gVGUIOffset=0`, coexisten).
+- El translate lo lee el motor **directo del objeto surface** de vgui_support:
+  la global `surface` (CEngineSurface*) está en RVA 0x0ac368 del dll, y
+  `_translateX/Y` en offset 0x24/0x28 del objeto. Se accede vía
+  `vgui.hInstance + RVA` (la base REAL cargada), así que el ASLR del dll no
+  molesta. Constantes en `vgui_draw.c` (`VGUI_SUPPORT_SURFACE_RVA`,
+  `VGUI_SUPPORT_TRANSLATE_OFF`), verificadas por desensamblado.
 
-Pendiente: verificar por Oscar (menú T centrado, y que Firearms sigue bien). Si
-va, es el segundo caso del PR/issue #2728 resuelto de verdad — candidato a
-proponer a FWGS el arreglo en vgui_support (ellos sí lo recompilan con MSVC).
+Historia (para no repetir): el primer intento fue un parche binario de
+vgui_support (`g_api->SetTranslate`), y falló dos veces: (1) hookeó una copia
+MUERTA de `SetupPaintState` (0x100074c0, 0 refs; el código vivo está inline en
+`pushMakeCurrent`); (2) al mover el hook al código vivo, PETÓ porque el dll
+tiene **DYNAMIC_BASE (ASLR)** y el código inyectado usaba direcciones absolutas
+sin relocaciones. La lección: para tocar vgui_support desde fuera, leer sus
+globales vía `hInstance+RVA` (no inyectar código con direcciones fijas).
+
+Pendiente: verificar por Oscar (menú T centrado, Firearms sigue bien). Si va, es
+el 2º caso del #2728 resuelto — para el PR a FWGS, el arreglo canónico sigue
+siendo en el fuente de vgui_support (traslación GL real; ellos compilan MSVC).
 
 ### EvoBot instalado en el NS de Steam (27/08)
 
