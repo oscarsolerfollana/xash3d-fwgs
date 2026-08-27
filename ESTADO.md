@@ -881,5 +881,5 @@ Síntoma: el proyectil de esporas del lerk, mancha verde opaca en Xash
 
 **Arreglo (commit 018e2593, local/oscar):** en rendermode normal, derivar el
 blending del texFormat (ADDITIVE→aditivo, INDEXALPHA→alpha). Instalado.
-Pendiente: verificar en NS (lerk) y decidir PR a FWGS (candidato número 4;
+VERIFICADO por Oscar (27/08): transparente en el test y en juego. PR a FWGS pendiente de orden (candidato numero 4;
 reproducción mínima sin mod: un .spr indexalpha + ent_create env_sprite).
