@@ -883,3 +883,10 @@ Síntoma: el proyectil de esporas del lerk, mancha verde opaca en Xash
 blending del texFormat (ADDITIVE→aditivo, INDEXALPHA→alpha). Instalado.
 VERIFICADO por Oscar (27/08): transparente en el test y en juego. PR a FWGS pendiente de orden (candidato numero 4;
 reproducción mínima sin mod: un .spr indexalpha + ent_create env_sprite).
+
+### PR #2730 abierto: sprites por texFormat en modo normal (27/08)
+
+https://github.com/FWGS/xash3d-fwgs/pull/2730 — rama
+`fix/sprite-texformat-normal-mode`. Cuerpo corto a peticion de Oscar:
+sintoma, repro de un comando, y nota de que los rendermode explicitos no
+cambian. Verificado en juego antes de subir.
