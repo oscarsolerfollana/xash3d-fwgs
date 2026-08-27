@@ -742,6 +742,10 @@ void GAME_EXPORT Key_Event( int key, int down )
 	const char *kb = keys[key].binding;
 	keys[key].down = down ? true : false;
 
+	// the engine cheat menu eats its option keys while it's open
+	if( CL_CheatMenuKey( key, down ))
+		return;
+
 #ifdef HACKS_RELATED_HLMODS
 	if(( cls.key_dest == key_game ) && ( cls.state == ca_cinematic ) && ( key != K_ESCAPE || !down ))
 	{

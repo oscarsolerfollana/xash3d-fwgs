@@ -562,6 +562,24 @@ visible, estilo OGC). Detalles:
 
 Pendiente de probar por Oscar.
 
+### Menú de trucos (28/08)
+
+Comando **`cheatmenu`** (motor, `cl_main.c`): menú de texto numerado estilo
+PODBot pintado con `Con_NXPrintf` y repintado cada frame desde `CL_CreateCmd`.
+Con el menú abierto, `Key_Event` (gancho en `in_keys.c`) se come las teclas de
+opción antes de que lleguen a los binds/slots de arma:
+
+- `1` — wallhack on/off (on = **0.8**, vía `Cvar_Set` por nombre — el cvar es
+  del ref)
+- `2` — aimbot cíclico: apagado → PECHO (`aimbot 180`) → CABEZA
+  (`aimbot_head 1`, apunta origin+25, +12 agachado vía `usehull`) → apagado
+- `0` / ESC — cerrar
+
+Cvar nuevo **`aimbot_head`** (0 pecho / 1 cabeza, archivado). Bind: la tecla
+**ñ** es scancode SEMICOLON → tecla `;` del motor; añadido
+`bind ";" "cheatmenu"` a `cstrike/config.cfg`. El launcher cs_assault.bat
+arranca ahora con wallhack/aimbot a 0 (el menú es el interruptor).
+
 ---
 
 ## 12. Armas de la 2.5 en la 3.0: no se puede (26/08)

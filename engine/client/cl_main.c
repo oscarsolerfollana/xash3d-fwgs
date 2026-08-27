@@ -54,6 +54,78 @@ CVAR_DEFINE_AUTO( cl_nopred, "0", FCVAR_USERINFO, "disable client movement predi
 static CVAR_DEFINE_AUTO( cl_nodelta, "0", 0, "disable delta-compression for server messages" );
 static CVAR_DEFINE_AUTO( bunnyhop, "0", FCVAR_ARCHIVE, "auto bunnyhop: hold jump to re-jump on landing" );
 static CVAR_DEFINE_AUTO( aimbot, "0", FCVAR_ARCHIVE, "OGC-style aim: snap to the enemy nearest the crosshair, value = cone half-angle in degrees" );
+static CVAR_DEFINE_AUTO( aimbot_head, "0", FCVAR_ARCHIVE, "aimbot aim point: 0 = chest, 1 = head" );
+
+/*
+==============================================================================
+CHEAT MENU
+
+podbot-style numbered text menu to toggle the local cheats.
+open with the "cheatmenu" command (meant to be bound to a key),
+pick options with the number keys
+==============================================================================
+*/
+static qboolean cheatmenu_active;
+
+static void CL_CheatMenu_f( void )
+{
+	cheatmenu_active = !cheatmenu_active;
+}
+
+static void CL_CheatMenuDraw( void )
+{
+	con_nprint_t line = { .time_to_live = 0.5f, .color = { 1.0f, 0.7f, 0.1f }};
+
+	if( !cheatmenu_active )
+		return;
+
+	line.index = 2;
+	Con_NXPrintf( &line, "===== TRUCOS =====" );
+	line.index = 3;
+	Con_NXPrintf( &line, "1. Wallhack: %s", Cvar_VariableValue( "wallhack" ) > 0.0f ? "ACTIVADO (0.8)" : "apagado" );
+	line.index = 4;
+	Con_NXPrintf( &line, "2. Aimbot: %s", aimbot.value <= 0.0f ? "apagado" : ( aimbot_head.value ? "CABEZA" : "PECHO" ));
+	line.index = 5;
+	Con_NXPrintf( &line, "0. Cerrar" );
+}
+
+qboolean CL_CheatMenuKey( int key, qboolean down )
+{
+	if( !cheatmenu_active || !down || cls.key_dest != key_game )
+		return false;
+
+	switch( key )
+	{
+	case '1':
+		if( Cvar_VariableValue( "wallhack" ) > 0.0f )
+			Cvar_Set( "wallhack", "0" );
+		else Cvar_Set( "wallhack", "0.8" );
+		return true;
+	case '2':
+		// off -> pecho -> cabeza -> off
+		if( aimbot.value <= 0.0f )
+		{
+			Cvar_SetValue( "aimbot", 180.0f );
+			Cvar_SetValue( "aimbot_head", 0.0f );
+		}
+		else if( !aimbot_head.value )
+		{
+			Cvar_SetValue( "aimbot_head", 1.0f );
+		}
+		else
+		{
+			Cvar_SetValue( "aimbot", 0.0f );
+			Cvar_SetValue( "aimbot_head", 0.0f );
+		}
+		return true;
+	case '0':
+	case K_ESCAPE:
+		cheatmenu_active = false;
+		return true;
+	}
+
+	return false; // anything else keeps working as usual
+}
 CVAR_DEFINE( cl_crosshair, "crosshair", "1", FCVAR_ARCHIVE, "show weapon chrosshair" );
 static CVAR_DEFINE_AUTO( cl_cmdbackup, "10", FCVAR_ARCHIVE, "how many additional history commands are sent" );
 CVAR_DEFINE_AUTO( cl_showerror, "0", FCVAR_ARCHIVE, "show prediction error" );
@@ -758,6 +830,8 @@ static void CL_CreateCmd( void )
 	vec3_t angles = Vec3( cl.viewangles );
 	input_override = 0;
 
+	CL_CheatMenuDraw();
+
 	// fix rounding error and framerate depending player move
 	double    accurate_ms = host.frametime * 1000;
 	ms = (int)accurate_ms;
@@ -884,7 +958,10 @@ static void CL_CreateCmd( void )
 
 			// aim at the interpolated origin: it's what's on screen, and with
 			// lag compensation it's also what the server rewinds to
-			VectorSubtract( ent->origin, eyes, dir );
+			vec3_t aimpoint = Vec3( ent->origin );
+			if( aimbot_head.value ) // head sits above the hull center; lower when ducking
+				aimpoint[2] += ( ent->curstate.usehull == 1 ) ? 12.0f : 25.0f;
+			VectorSubtract( aimpoint, eyes, dir );
 			VectorNormalize( dir );
 			dot = DotProduct( forward, dir );
 
@@ -3787,6 +3864,8 @@ static void CL_InitLocal( void )
 	Cvar_RegisterVariable( &cl_nodelta );
 	Cvar_RegisterVariable( &bunnyhop );
 	Cvar_RegisterVariable( &aimbot );
+	Cvar_RegisterVariable( &aimbot_head );
+	Cmd_AddCommand( "cheatmenu", CL_CheatMenu_f, "toggle the numbered cheat menu (wallhack/aimbot)" );
 	Cvar_RegisterVariable( &cl_idealpitchscale );
 	Cvar_RegisterVariable( &cl_solid_players );
 	Cvar_RegisterVariable( &cl_interp );

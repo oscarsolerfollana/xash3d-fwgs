@@ -788,6 +788,7 @@ void CL_SetupNetchanForProtocol( connprotocol_t proto );
 qboolean CL_PrecacheResources( void );
 void CL_SetupOverviewParams( void );
 void CL_UpdateFrameLerp( void );
+qboolean CL_CheatMenuKey( int key, qboolean down );
 int CL_IsDevOverviewMode( void );
 void CL_SignonReply( connprotocol_t proto );
 void CL_ClearState( void );
