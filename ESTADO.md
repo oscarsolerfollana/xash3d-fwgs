@@ -820,3 +820,14 @@ Pendientes de decidir:
 - Issue a RGreenlees/evobot_mm con la pila (el NaN es bug suyo — aunque cabe que
   el vector NaN nazca de algo que Xash entrega distinto; con el guard puesto, si
   vuelve a pasar el juego seguirá vivo y el aviso en consola delatará el momento).
+
+### Cuelgue NaN: verificado y reportado a EvoBot (27/08)
+
+- Con el guard NaN instalado, Oscar confirma: **los bots ya no cuelgan el juego.**
+- Resultó que el cuelgue YA estaba reportado en EvoBot: issue #24 («Crash on ns_*
+  maps after randomly about 15 mins»), un usuario con **HLDS dedicado (GoldSrc)** —
+  mismo código de trazas de Quake, mismo bucle infinito. Sin respuesta desde
+  su apertura. **Comentada la causa raíz con la pila de gdb:**
+  https://github.com/RGreenlees/evobot_mm/issues/24#issuecomment-5432876921
+- Pendiente opcional: PR a FWGS con el guard NaN de pm_trace.c (commit de351618
+  en local/oscar; el diff son dos comparaciones invertidas).
