@@ -837,3 +837,17 @@ Pendientes de decidir:
 https://github.com/FWGS/xash3d-fwgs/pull/2729 — rama `fix/pm-trace-nan-hang`,
 diff 6+/2- (los dos clamps invertidos + comentarios). Cruza referencias con
 evobot_mm#24. Verificación citada: el cuelgue de ~10-15 min con bots desaparece.
+
+### Menú de la T (pie menu) descolocado — mismo bug del #2728 (27/08)
+
+El menú radial de la T dibuja todos sus sprites arriba a la izquierda (los
+paneles/zona clicable quedan centrados e invisibles). Verificado en fuente:
+`FadingImageLabel::DoPaint` y `PieNode::paintBackground` hacen `SPR_DrawHoles`
+con coordenadas locales del panel dentro del paint() — código idéntico en 3.2 y
+en el 3.3 de ENSL. Mismo fallo de traslación que el minimapa, por el segundo
+camino de dibujo (SPR_* en vez de TriAPI). **Sin arreglo local posible** (ni
+parche binario ni recompilación). Añadido como segundo caso al issue #2728:
+https://github.com/FWGS/xash3d-fwgs/issues/2728#issuecomment-5433010560
+El arreglo propuesto allí (traslación GL real) cubre ambos caminos.
+Convivencia mientras tanto: el menú responde a clics en sus posiciones
+correctas (centradas), aunque se pinte en la esquina.
