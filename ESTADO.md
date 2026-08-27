@@ -897,6 +897,21 @@ Steam, con bots). El `ns/` (3.2) sigue ahí también.
 - **Issue #2728 abierto en FWGS** con el diagnóstico completo del vgui_support y
   el arreglo propuesto: https://github.com/FWGS/xash3d-fwgs/issues/2728
 
+### Estado de PRs/issues (28/08)
+
+- **#2722, #2726, #2729: FUSIONADOS** (#2726 y #2729 mergeados el 27/08;
+  #2729 con «Good idea, I like it» de a1batross).
+- **#2730** (sprites texFormat / lerk): abierto, a1batross «will review it later».
+  Único PR pendiente.
+- **#1371** (sprint): abierto, de acuerdo con a1batross en que el arreglo
+  ingenuo rompería otros binds; sin siguiente paso, pelota en su tejado.
+- **#2728** (traslación VGUI): a1batross dice que **vgui_support va a
+  desaparecer (migración a `freevgui`)**, así que NO arreglarán la traslación
+  ahí. Consecuencia: el arreglo del menú T/minimapa se queda como LOCAL (el
+  motor lee el translate del surface); no hay PR upstream que proponer.
+- **evobot#24** (cuelgue NaN): un usuario (syocs) pregunta cómo aplicar el fix.
+  Pendiente responderle.
+
 ### Movimientos con upstream (27/08, tarde)
 
 - **PR #2726 APROBADO** por a1batross («100% de acuerdo»; añade que seguramente
