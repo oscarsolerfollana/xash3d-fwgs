@@ -1589,6 +1589,12 @@ static void R_DrawTextureChains( void )
 
 	if( R_WallhackActive( ))
 	{
+		// with no depth written, a skybox drawn last would cover the whole
+		// translucent world: draw it first instead, as the background
+		if( skychain && !ENGINE_GET_PARM( PARM_DEV_OVERVIEW ))
+			R_DrawSkyBox();
+		skychain = NULL;
+
 		pglEnable( GL_BLEND );
 		pglBlendFunc( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
 		pglTexEnvf( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE );
