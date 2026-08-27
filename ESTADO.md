@@ -525,6 +525,23 @@ eran legendarios ya en GoldSrc).
 no se ejecuta). Si Oscar quiere el chat, el plan B es parche binario al
 saltarse el caso «no encontrado» (como el del minimapa de NS).
 
+### Bunnyhop en CS: cap de velocidad parcheado (28/08)
+
+CS trae `PM_PreventMegaBunnyJumping` en su pm_shared (dlls cerrados): al
+despegar un salto, si la velocidad > 1.2 × pmove->maxspeed, la escala por
+(límite/vel) × 0.65. `sv_maxspeed` no influye (el límite usa el maxspeed por
+arma que fija el propio CS). Función idéntica en ambos lados:
+
+- `mp.dll` VA 0x1004e5d0 (1.2f en 0x1008d210; 0.65 como DOUBLE en 0x10087c80
+  — por eso no salía escaneando floats)
+- `client.dll` VA 0x10039df0 (1.2f en 0x1006c600; double 0.65 en 0x10070a48)
+
+**Parche aplicado:** `ret` en el primer byte de la función, en los dos dlls
+(los dos o la predicción va a trompicones). `patches/patch_cs13_bhopcap.py`
+(verifica bytes, backups .orig). Pendiente de probar por Oscar. Si al
+aterrizar aún frena: sería la stamina (fuser2), mecanismo aparte — cazar si
+molesta.
+
 ---
 
 ## 12. Armas de la 2.5 en la 3.0: no se puede (26/08)
