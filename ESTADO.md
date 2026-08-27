@@ -501,7 +501,29 @@ Límite conocido: los JUGADORES muy lejanos pueden seguir sin verse aunque la
 geometría sí se pinte — el servidor no manda entidades fuera del PVS del
 cliente (culling de red, lado servidor). Si molesta, es ataque aparte.
 
-Verificado por Oscar: pendiente.
+- Skybox: se pinta PRIMERO como fondo con wallhack activo. Sin depth escrita,
+  el skybox del final tapaba todo el mundo translúcido en cuanto entraba cielo
+  en el frustum (reporte de Oscar en cs_assault: «solo se ve el fondo»).
+
+Verificado por Oscar: pendiente (v3: PVS + skybox).
+
+### CS 1.3 + PODBot instalado (28/08) — crash del chat de bots mitigado
+
+Oscar montó `cstrike/` (CS 1.3, liblist a `podbot\podbot.dll` directo, sin
+metamod; PODBot 2.x de ago-2001 con su mp.dll de sep-2001 — versiones bien
+emparejadas, época LAN party). Petó jugando; el diálogo Sys_Crash (leído por
+Win32 antes de cerrarlo) dio: **podbot.dll rva 0x13204**, c0000005.
+
+Desensamblado: es el **formateador de frases de chat** del bot (códigos `%`
+de BotChat.txt tipo «nombre del que me mató»). Resuelve el jugador buscando
+su edict en un array interno de 44 bytes/entrada (base 0x10065174); si la
+búsqueda falla usa igual el índice de «no encontrado» y desreferencia el
+puntero basura de esa entrada. Bug del propio PODBot (sus crashes aleatorios
+eran legendarios ya en GoldSrc).
+
+**Mitigación aplicada: `botchat off` en `PodBot.cfg`** (el camino del crash
+no se ejecuta). Si Oscar quiere el chat, el plan B es parche binario al
+saltarse el caso «no encontrado» (como el del minimapa de NS).
 
 ---
 
