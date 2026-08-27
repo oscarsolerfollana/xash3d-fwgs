@@ -1933,8 +1933,10 @@ void R_DrawBrushModel( cl_entity_t *e )
 	if( FBitSet( gp_host->features, ENGINE_QUAKE_COMPATIBLE ) && FBitSet( clmodel->flags, MODEL_TRANSPARENT ))
 		e->curstate.rendermode = kRenderTransAlpha;
 
-	// see-through walls: draw opaque brush models like TransTexture entities
-	if( R_WallhackActive( ) && e->curstate.rendermode == kRenderNormal )
+	// see-through walls: draw opaque brush models like TransTexture entities.
+	// TransAlpha too: masked grates keep their holes through the texture alpha,
+	// but stop writing depth, which occluded everything behind them
+	if( R_WallhackActive( ) && ( e->curstate.rendermode == kRenderNormal || e->curstate.rendermode == kRenderTransAlpha ))
 	{
 		e->curstate.rendermode = kRenderTransTexture;
 		tr.blend = R_WallhackAlpha( );
