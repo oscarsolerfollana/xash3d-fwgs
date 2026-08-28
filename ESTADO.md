@@ -1108,6 +1108,20 @@ la trae bindeada (sí `oldbinds.cfg`); en Steam sí está. Solución: añadido
 Instrumentación (logs `[ev-sv]`/`[ev-cl]` en sv_game.c/cl_events.c) revertida;
 motor limpio reinstalado.
 
+**Confirmado como regresión del mod y REPORTADO (28/08).** Montada la NS **3.0**
+(dlls del instalador, marzo 2005, `liblist v3.0`) en `ns32/` (gamedll directo a
+ns.dll, sin metamod; `test_ns32_pistola.bat`). La 3.0 dispara **1 bala/click**
+(normal); la 3.3b9 dobla. O sea el bug entró entre 3.0 y 3.3b9 (no sabemos si en
+3.1/3.2 o en el 3.3b9 de ENSL). **Issue #195 en ENSL/NS** a nombre de Oscar:
+https://github.com/ENSL/NS/issues/195 — con repro, la regresión, que pasa en
+GoldSrc y Xash por igual (no es el motor), y el área del código
+(`AvHBasePlayerWeapon`: `ProcessValidAttack`/`PrimaryAttack`/`WeaponIdle` +
+el decremento manual de timers por `cmd.msec` en `ItemPostFrame`).
+
+Apaño local mientras: `bind mouse1 "+attack;-attack"` (semi-fire GoldSrc, un
+disparo por pulsacion) en `ns/semifire.cfg` — peaje: el LMG deja de ser
+automatico con ese bind. `ns32/` queda montado para comparar versiones.
+
 ---
 
 ## 16. Soldar escotillas: CAUSA CAZADA Y ARREGLO INSTALADO (28/08)
