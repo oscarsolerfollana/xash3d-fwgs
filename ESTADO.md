@@ -1083,6 +1083,49 @@ cambian. Verificado en juego antes de subir.
 
 ---
 
+## 18. EN CURSO: comparar armas de CS 1.3 en Xash vs GoldSrc (28/08)
+
+**Motivación:** tras el bípode (que desajustaba dispersión/predicción en Xash de
+anfitrión), Oscar quiere verificar que las armas de CS 1.3 se comportan igual en
+Xash y GoldSrc. CS 1.3 NO corre en Steam (Steam tiene CS 1.6, armas distintas),
+así que el GoldSrc de referencia es **Half-Life WON** (`C:\Sierra\Half-Life`,
+hl.exe de 2002, pre-Steam).
+
+**Montado y funcionando:**
+- **WON con CS 1.3:** `C:\Sierra\Half-Life\cstrike13\` (copia del cstrike de
+  Xash). Dlls `.orig` restaurados (CS 1.3 PURO, sin el parche del bhop),
+  liblist a `dlls\mp.dll` (sin bots), y **`hlversion` bajado a "1016"** (el de la
+  beta 6.1 que arranca en ese hl.exe; con "1104" daba mismatch). **Verificado
+  por Oscar: CS 1.3 arranca en WON.**
+- **Xash con CS 1.3 puro:** el `cstrike/` de Xash tiene los `.orig` restaurados
+  (CS 1.3 puro para la comparación). **OJO: hay que REAPLICAR el parche del bhop
+  (`patches/patch_cs13_bhopcap.py`) cuando se acabe la comparación** — ahora el
+  bhop cap está presente otra vez.
+- **Launchers:** `test_cs_xash_host.bat` (Xash de anfitrión, `dbg_weapondata 2`,
+  log `cs_xash.log`) y `C:\Sierra\Half-Life\CS13_WON.bat` (WON de anfitrión).
+  Ambos en `aim_ak-colt` (mismo mapa, armas al spawn). También quedaron
+  `CS13_WON_server.bat` (WON servidor) por si se retoma el método cliente.
+
+**Método correcto (clave, aportada por Oscar):** el bípode SOLO afecta al
+ANFITRIÓN de un listenserver, no a los que se conectan (sección 2). Así que hay
+que medir **Xash de anfitrión vs WON de anfitrión** (dos listenservers), NO
+cliente-Xash-contra-servidor-WON (ese sería "el que se conecta", inmune al
+bípode). Medición INSTRUMENTAL como el bípode (nada de screenshots):
+- **Cono/dispersión y cadencia** desde `dbg_weapondata 2`, que vuelca cada
+  evento de disparo con sus parámetros (en Firearms `f1/f2` = dispersión) y
+  timestamp (host.realtime). En Xash: directo del log. En WON (no se puede
+  instrumentar el motor): **gdb enganchado al proceso** leyendo los mismos datos
+  en el disparo (como el cuelgue NaN de EvoBot).
+
+**Siguiente paso al retomar:** Oscar dispara una ráfaga de AK en Xash-host
+(`test_cs_xash_host.bat`) → leer `cs_xash.log` y CONFIRMAR que el evento de
+disparo de CS lleva la dispersión en sus parámetros (como Firearms). Si sí, el
+resto es mecánico (todas las armas × estados: quieto/agachado/saltando/
+corriendo, zoom, silenciador) en ambos motores. Si el evento de CS NO trae el
+spread, ajustar la instrumentación para capturarlo de la traza de bala.
+
+---
+
 ## 17. NS: doble disparo de la pistola — NO es de Xash (28/08)
 
 Síntoma: la pistola del marine gasta **2 balas por click** (baja de 10 a 8).
