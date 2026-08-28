@@ -1083,6 +1083,33 @@ cambian. Verificado en juego antes de subir.
 
 ---
 
+## 17. NS: doble disparo de la pistola — NO es de Xash (28/08)
+
+Síntoma: la pistola del marine gasta **2 balas por click** (baja de 10 a 8).
+Investigado a fondo con instrumentación del motor (ya retirada):
+
+- Con `cl_lw 0` no se nota (pero rompe la selección de arma en NS; irrelevante).
+- El servidor DISPARA 2 de verdad (2 eventos `Pistol.sc`, munición -2), la
+  predicción del cliente coincide (2 = 2). No es el rate limiter (#2722):
+  con `cl_cmdrate 101 + cl_updaterate 101` sigue.
+- Mecanismo (fuente NS, `AvHBasePlayerWeapon`): la pistola es semiauto
+  (`GetMustPressTriggerForEachShot()=true`); dispara solo si `!m_fInAttack`,
+  que se resetea en `WeaponIdle` cuando `m_flTimeWeaponIdle` (decrementado por
+  `cmd.msec`) expira. En un click sostenido el timer expira, se rearma el
+  gatillo y dispara la 2ª bala.
+- **CLAVE: en NS de Steam (GoldSrc) TAMBIÉN dispara doble.** Verificado por
+  Oscar. Por tanto es comportamiento de NS (o bug del propio mod), NO de Xash.
+  Nada que arreglar en el motor. Cerrado.
+
+Aparte: la **`q`** no cambiaba de arma en Xash porque el `config.cfg` de NS no
+la trae bindeada (sí `oldbinds.cfg`); en Steam sí está. Solución: añadido
+`bind "q" "lastinv"` a `ns/userconfig.cfg` (persiste, no se reescribe).
+
+Instrumentación (logs `[ev-sv]`/`[ev-cl]` en sv_game.c/cl_events.c) revertida;
+motor limpio reinstalado.
+
+---
+
 ## 16. Soldar escotillas: CAUSA CAZADA Y ARREGLO INSTALADO (28/08)
 
 Síntoma (NS 3.3 sobre Xash, reportado por Oscar): el welder del marine contra
