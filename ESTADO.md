@@ -1188,8 +1188,11 @@ OJO pendiente de aclarar con Oscar: ¿en qué mapa vio el fallo? Si fue en
 ns_machina (weldables spawnflag 3, SOLID_BSP), habría un segundo problema
 distinto que este fix no cubre.
 
-Si se verifica: candidato a PR #5 a FWGS (diagnóstico completo listo; citar
-NS 3.2/3.3 como mod afectado de su lista soportada).
+**PR #2732 ABIERTO (28/08):** https://github.com/FWGS/xash3d-fwgs/pull/2732
+Rama `fix/solid-custom-fallback-hull` desde `origin/master`, un solo commit a
+nombre de Oscar (mensaje en inglés, sin coletillas). Diff 46+/8-, SOLO el
+arreglo del welder (auditado: cero rastro de bunnyhop/aimbot/wallhack/dbg).
+Compilado con MinGW/i386 sobre master actual antes de subir. Pendiente de revisión.
 
 Estado general al cierre del 27/08: PRs #2726 (aprobado), #2729 y #2730
 (abiertos) esperando; #1371, #2728 y evobot#24 esperando respuesta; todo lo
