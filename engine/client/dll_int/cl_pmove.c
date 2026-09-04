@@ -942,6 +942,8 @@ static void CL_RunUsercmd( local_state_t *from, local_state_t *to, usercmd_t *u,
 		if( clgame.pmove->onground > 0 && clgame.pmove->onground < clgame.pmove->numphysent )
 			cl.local.lastground = clgame.pmove->physents[clgame.pmove->onground].info;
 		else cl.local.lastground = clgame.pmove->onground; // world(0) or in air(-1)
+
+		cl.local.movetype = clgame.pmove->movetype;
 	}
 
 	clgame.dllFuncs.pfnPostRunCmd( from, to, &cmd, runfuncs, *time, random_seed );

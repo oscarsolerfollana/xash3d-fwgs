@@ -1,7 +1,7 @@
 # Xash3D + Firearms — estado de la investigación
 
-Última actualización: 2026-09-04 (ascensor de c1a0b CERRADO: no es de Xash;
-frente nuevo: el salto desde escalera no hace nada, instrumentado y listo para probar)
+Última actualización: 2026-09-05 (salto desde escalera: cazado, lo comia nuestro
+propio parche de bunnyhop; arreglado y compilado, pendiente de verificar)
 
 ## Resumen
 
@@ -29,18 +29,20 @@ funciona con `host_limitlocal` en 0 y en 1, sin tocar nada en la consola.
 
 ## 0. Por dónde seguir
 
-**FRENTE ACTIVO (04/09): saltar desde una escalera no hace nada. Ver sección 20.**
+**FRENTE ACTIVO (05/09): salto desde escalera — CAZADO Y ARREGLADO. Ver sección 20.**
 
-En Xash, subido a una `func_ladder`, pulsar saltar no despega de la escalera. El
-movimiento lo compila el mod (`PM_LadderMove` es código de Valve, idéntico en los dos
-motores), así que la diferencia tiene que estar en lo que el motor le sirve. Sospecha
-principal: `PM_TraceModel` devuelve el plano sin normal, y el salto es literalmente
-`velocity = plane.normal * 270` → cero.
+No era de Xash: lo comía **nuestro propio parche de bunnyhop**. Para que `PM_Jump`
+vea una pulsación nueva al aterrizar, escondía el botón de salto mientras estabas en
+el aire — y una escalera, desde el cliente, parece el aire (`onground == -1`). La
+traza lo dejó claro: 2278 líneas, la traza contra el brush perfecta en todas
+(`frac=0.789`, `norm=0.00 1.00 0.00`), y **ni una sola con `JUMP`**.
 
-**SIGUIENTE PASO CONCRETO: lanzar `test_escalera_salto.bat`** (ya compilado e
-instalado). Subirse a la escalera de `crossfire`, mirar de frente y pulsar saltar,
-repetir de lado y de espaldas. Deja `escalera.log` con líneas `[ladder:SV]` /
-`[ladder:CL]`. La tabla de la sección 20 dice qué significa cada caso.
+Arreglado: `cl.local` ahora guarda el `movetype` y el bunnyhop no toca el salto si
+es `MOVETYPE_FLY`. Compilado.
+
+**SIGUIENTE PASO CONCRETO: lanzar `test_escalera_salto.bat`** y comprobar las dos
+cosas: que saltar en la escalera **te despega**, y que el bunnyhop **sigue botando**
+en suelo. Si va bien, quitar la instrumentación (sección 20).
 
 ---
 
@@ -1592,7 +1594,7 @@ exclusivo de la `hl.dll` de WON y Valve ya lo corrigió en builds posteriores.
 
 ---
 
-## 20. EN CURSO: en Xash, saltar desde una escalera no hace nada (04/09)
+## 20. Saltar desde una escalera no hacia nada: NO era de Xash, era nuestro bunnyhop (05/09)
 
 Sintoma (Oscar): subido a una `func_ladder`, pulsar saltar no hace nada. En GoldSrc
 te despega de la escalera de un empujon.
@@ -1656,9 +1658,53 @@ Cvar **`pm_trace_ladder`** (0 = apagado). `PM_TraceModel` solo lo llama el mod d
 - `test_escalera_salto.bat` — Xash en `crossfire` con `pm_trace_ladder 1`,
   log en `escalera.log`. Otros mapas con escalera: `stalkyard`, `boot_camp`, `t0a0d`.
 
-### Pendiente
+### CAZADO (05/09): lo hacia nuestro propio parche de bunnyhop
 
-Correr el lanzador y leer el log. Si el motor sirve bien el dato (fila 4), el
-siguiente paso es comparar contra GoldSrc de Steam con el mismo mapa — y ahi vale
-el aviso de la seccion 19: la `hl.dll` del proyecto es la de Steam, asi que la
-comparacion contra Steam SI aisla el motor (contra Sierra no).
+`escalera.log`, 2278 lineas (1139 frames, `SV` y `CL` identicos punto por punto):
+
+```
+[ladder:CL] org=440.3 -1508.9 -1596.0 -> 448.0 -1528.0 -1472.0 frac=0.789 start=0 all=0 norm=0.00 1.00 0.00 vel=65.0 -313.2 0.0 mt=5 og=0
+```
+
+- `frac=0.789` en **las 2278**, nunca 1.0 → la traza alcanza el brush. Candidato 2 fuera.
+- `norm=0.00 1.00 0.00` en **las 2278** → la normal es buena. Candidato 3 fuera,
+  que era mi apuesta.
+- `mt=5` = `MOVETYPE_FLY` → la escalera se detecta bien. Candidato 1 fuera.
+- **Ni una sola linea con `JUMP`.** Ahi estaba: el boton de salto no llega nunca.
+
+El culpable es el parche local de bunnyhop (seccion 11), en `CL_CreateCmd`
+(`engine/client/cl_main.c:882`): para que `PM_Jump` vea una pulsacion nueva al
+aterrizar, **esconde el boton de salto mientras estas en el aire**. Y una escalera,
+desde ahi, parece el aire: `og=-1` en 2276 de las 2278 lineas. Asi que borraba
+`IN_JUMP` en todos y cada uno de los frames de la escalera.
+
+Que el bug fuera invisible tiene su logica: el mod lee el boton **mantenido** del
+usercmd para despegarte de la escalera, sin comprobar flanco, asi que quitarselo no
+retrasa el salto — lo elimina del todo.
+
+### Arreglo (05/09, compilado)
+
+El motor no tenia forma de distinguir "en el aire" de "en una escalera": `cl.local`
+no guardaba el `movetype`. Ahora si.
+
+- `engine/client/client.h` — campo `movetype` en `cl_local_data_t`
+- `engine/client/dll_int/cl_pmove.c` — se rellena de `clgame.pmove->movetype`
+  justo despues de la prediccion, donde ya se guardaba `lastground`
+- `engine/client/cl_main.c` — el bunnyhop ya no esconde el salto si
+  `movetype == MOVETYPE_FLY`. Con `bunnyhop 2` lo dice: `bhop: pass (ladder)`
+
+**Nada que mandar a upstream**: el bunnyhop es solo nuestro y no va a FWGS. Xash
+estaba sirviendo el dato bien.
+
+### Pendiente de verificar
+
+Correr `test_escalera_salto.bat` y comprobar las dos cosas a la vez:
+
+1. Subido a la escalera, saltar **te despega** (con `bunnyhop 1`, que es lo que
+   tienes guardado en `valve/config.cfg`).
+2. El bunnyhop **sigue funcionando** en suelo: mantener salto y seguir botando.
+
+En el log ahora tienen que salir lineas con `JUMP` al final mientras estas en la
+escalera. Si sale bien, quitar la instrumentacion:
+`git checkout engine/common/pm_trace.c engine/common/pm_local.h engine/common/host.c`
+(ojo: `host.c` tambien lleva el `#include "pm_local.h"` que hace falta solo para esto).

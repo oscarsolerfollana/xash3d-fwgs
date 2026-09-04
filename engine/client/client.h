@@ -133,6 +133,7 @@ typedef struct
 	int		viewmodel;
 	int		health;		// client health
 	int		onground;
+	int		movetype;	// last predicted movetype, MOVETYPE_FLY while on a ladder
 	int		light_level;
 	int		waterlevel;
 	int		usehull;

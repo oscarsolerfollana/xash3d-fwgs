@@ -881,7 +881,16 @@ static void CL_CreateCmd( void )
 	// from the game so PM_Jump sees a fresh press on the frame we land
 	if( bunnyhop.value && active && FBitSet( cmd->buttons, IN_JUMP ))
 	{
-		if( cl.local.onground == -1 && cl.local.waterlevel <= 1 )
+		// a ladder is MOVETYPE_FLY with onground == -1, so it looks airborne from
+		// here. The mod reads the held jump button straight out of the usercmd to
+		// kick you off the ladder, with no fresh-press check, so hiding it there
+		// meant jump did nothing at all while climbing
+		if( cl.local.movetype == MOVETYPE_FLY )
+		{
+			if( bunnyhop.value > 1.0f )
+				Con_Printf( "bhop: pass (ladder)\n" );
+		}
+		else if( cl.local.onground == -1 && cl.local.waterlevel <= 1 )
 		{
 			ClearBits( cmd->buttons, IN_JUMP );
 			if( bunnyhop.value > 1.0f )
