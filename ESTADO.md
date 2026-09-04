@@ -1,6 +1,7 @@
 # Xash3D + Firearms — estado de la investigación
 
-Última actualización: 2026-08-26, mañana (sesión larga: NS, EvoBot, bug physent)
+Última actualización: 2026-08-29 (comparación armas CS: WON descartado bajo gdb,
+pivotado a CS 1.6 vía Steam; tres piezas montadas, pendiente de correr)
 
 ## Resumen
 
@@ -28,15 +29,62 @@ funciona con `host_limitlocal` en 0 y en 1, sin tocar nada en la consola.
 
 ## 0. Por dónde seguir
 
-**Prueba A — el sprint: HECHA y superada (26/08).** Sprint de mantener bien, sin
-atascos, binds intactos, bípode cerrando. Lo que queda de ella es decidir cómo llevarla
-a upstream (sección 10): lo más valioso es comentar la causa raíz en el **#1371**.
+**FRENTE ACTIVO (04/09): ascensor giratorio de c1a0b. Ver sección 19.**
 
-**Prueba B — solo el hunk del cliente: ya solo opcional.** El PR #2722 fue aprobado con
-los dos commits, así que nadie pide justificar el del servidor. Si algún día apetece por
-curiosidad: revertir el hunk de `sv_frame.c` dejando el de `cl_main.c` (quitar
-`svs.maxclients == 1 &&` de la condición de `sv_frame.c:849`), recompilar y ver si el
-bípode sigue arreglado. Ojo: recompilar pisa el dll instalado.
+Prácticamente cerrado: NO es de Xash. El bug es del mapa (`height "-216"` invierte
+el sentido) + el SDK, y la diferencia Xash/GoldSrc que se veía es que **son dos
+`hl.dll` distintas** (Steam vs WON de 2002); Valve arregló el teletransporte de
+`LinearMoveDone` en las builds nuevas.
+
+**SIGUIENTE PASO CONCRETO (mañana):** lanzar `test_ascensor_c1a0b_steam.bat`
+(GoldSrc de Steam = motor viejo + DLL moderna, sin tocar ningún archivo) y mirar
+si el ascensor **baja despacio en vez de saltar**, con `host_timescale 0.1`.
+Eso cierra la tabla de la sección 19 por el lado seguro. Opcional, la otra mitad:
+`test_ascensor_c1a0b_won.bat` (DLL de WON bajo Xash), que sí deja traza y debería
+dar `THINK dz=-78.67`. Al terminar, quitar la instrumentación (sección 19).
+
+**OJO, afecta a la sección 18:** Sierra (WON) y el proyecto (Steam) no tienen la
+misma `hl.dll`, así que comparar Xash contra Sierra NO aísla el motor. Igualar la
+DLL del mod antes de atribuirle nada a Xash — vale también para el `cstrike` de
+las pruebas de armas.
+
+---
+
+**OTRO FRENTE ABIERTO (29/08): comparar armas de CS en Xash vs GoldSrc. Ver sección 18.**
+
+Resumen de dónde quedó: la vía CS 1.3 + WON está MUERTA — el WON no corre bajo
+gdb (se apaga el servidor, probado a fondo). Pivotado a **CS 1.6, que sí corre en
+Steam** (idea de Oscar: mismo truco que dio el dato GoldSrc de Firearms, cliente
+Xash instrumentado contra servidor de Steam, sin gdb). Montado `cs16/` y tres
+lanzadores.
+
+**SIGUIENTE PASO CONCRETO (mañana):** correr la **PIEZA 1**,
+`test_cs16_xash_host.bat` — Xash de anfitrión, unirse a equipo, AK, protocolo de
+ráfagas (cargador de pie / agachado / corriendo / saltando, pausas de 2-3 s).
+Con eso confirmo que CS 1.6 arranca en Xash y que el evento de disparo se captura,
+y saco la línea base de cadencia/cono por estado (como en 1.3). Log: `cs16_host.log`,
+parser `parse_cs_log.py`. Luego **PIEZA 2** (`test_cs16_xash_vs_steam.bat`, contra
+servidor LAN de CS 1.6 de Steam) para la referencia GoldSrc por `[wd:RX]`. La
+PIEZA 3 (control todo-Xash) solo si 1 y 2 discrepan. Detalles y caveats: sección 18.
+
+**Estado de la línea base Xash de CS 1.3 (ya medida, por si sirve de contraste):**
+tabla en sección 18 (de pie/agachado ~0.03, corriendo ~0.07, saltando 0.13-0.32,
+AK a 10/s). Conclusión indirecta ya cerrada: la dispersión de CS se calcula por
+disparo, no acumulada entre snapshots → el bug clase-bípode NO la afecta. Lo de
+1.6 es para tener también el número de GoldSrc empírico.
+
+**PRs/issues (comprobado 29/08, sin novedad):** #2732 (welder) y #2730 (sprites
+lerk) ABIERTOS esperando review de a1batross, nada por hacer. Fusionados: #2722,
+#2726, #2729. #1371, #2728, evobot#24 en tejado ajeno.
+
+---
+
+### Cerrado hace tiempo (bípode y sprint)
+
+**Bípode:** resuelto y fusionado (#2722). **Sprint:** diagnóstico + causa raíz
+publicados en #1371, de acuerdo con a1batross en que el arreglo ingenuo rompería
+otros binds; sin siguiente paso. **Prueba B (revertir el hunk del servidor):**
+opcional, ya no la pide nadie — el #2722 se fusionó con los dos commits.
 
 ---
 
@@ -1102,8 +1150,10 @@ hl.exe de 2002, pre-Steam).
   (`patches/patch_cs13_bhopcap.py`) cuando se acabe la comparación** — ahora el
   bhop cap está presente otra vez.
 - **Launchers:** `test_cs_xash_host.bat` (Xash de anfitrión, `dbg_weapondata 2`,
-  log `cs_xash.log`) y `C:\Sierra\Half-Life\CS13_WON.bat` (WON de anfitrión).
-  Ambos en `aim_ak-colt` (mismo mapa, armas al spawn). También quedaron
+  log `cs_xash.log`) y `C:\Sierra\Half-Life\CS13_WON.bat` (WON de anfitrión;
+  en cs_assault + fullscreen desde el 28/08 — el aim_ak-colt no está en esa
+  instalación; el AK se saca con `give weapon_ak47`, sv_cheats ya va en el bat;
+  el mapa no influye en el spread). También quedaron
   `CS13_WON_server.bat` (WON servidor) por si se retoma el método cliente.
 
 **Método correcto (clave, aportada por Oscar):** el bípode SOLO afecta al
@@ -1117,12 +1167,176 @@ bípode). Medición INSTRUMENTAL como el bípode (nada de screenshots):
   instrumentar el motor): **gdb enganchado al proceso** leyendo los mismos datos
   en el disparo (como el cuelgue NaN de EvoBot).
 
-**Siguiente paso al retomar:** Oscar dispara una ráfaga de AK en Xash-host
-(`test_cs_xash_host.bat`) → leer `cs_xash.log` y CONFIRMAR que el evento de
-disparo de CS lleva la dispersión en sus parámetros (como Firearms). Si sí, el
-resto es mecánico (todas las armas × estados: quieto/agachado/saltando/
-corriendo, zoom, silenciador) en ambos motores. Si el evento de CS NO trae el
-spread, ajustar la instrumentación para capturarlo de la traza de bala.
+**Instrumentación VALIDADA y línea base Xash MEDIDA (28/08):** el evento de CS
+(`events/ak47.sc` etc.) sí lleva los datos: `f1/f2` = desviación aplicada a esa
+bala (`vecDir.x/y` = cono × random; OJO, a diferencia de Firearms NO es el cono
+directo — el cono se estima de la ENVOLVENTE de la ráfaga), `i1/i2` = punchangle
+escalado. `f1/f2` de CL y SV coinciden tiro a tiro (random sembrado, predicción
+bien). Detalle de parsing: el campo `duck` del cd solo marca la TRANSICIÓN; el
+estado agachado real se lee de `vofs` (17 de pie, 12 agachado). Script:
+`parse_cs_log.py` (scratchpad; segmenta ráfagas por huecos >1s y clasifica
+estado por vofs/vel/FL_ONGROUND).
+
+**Línea base Xash-host, AK47 (cargador ~27-30 tiros por estado):**
+
+| estado | envolvente \|f\| máx | std(f) | cadencia |
+|---|---|---|---|
+| quieto de pie | 0.029-0.032 | 0.012-0.014 | 10.0/s |
+| agachado | 0.032 | 0.010-0.016 | 10.0/s |
+| corriendo | 0.075 | 0.028-0.033 | 10.2/s |
+| saltando | 0.13-0.32 | 0.05-0.13 | (tap por salto) |
+
+(más una ráfaga M4A1 corriendo: máx 0.120, std 0.035-0.053, 6.85/s — la
+cadencia baja es del M4A1 con silenciador o el muestreo, comprobar al comparar)
+
+**Lado WON MONTADO Y VALIDADO EN VIVO (28/08), pendiente de primera captura.**
+gdb (w64devkit 17.2, sin Python) enganchado a `hl.exe` con UN breakpoint en el
+`pfnPlaybackEvent` del motor, leído en runtime del `g_engfuncs` de `mp.dll`
+(mismo dll bit a bit que `cstrike/dlls/mp.dll.orig`, md5 e1f19e28...).
+
+**OJO, lección del primer intento fallido:** en el hl.exe de WON `mp.dll` NO
+carga en su base preferida 0x10000000 — la ocupa `WONAuth.dll` — y se realoja
+(sesión de prueba: base 0x18a90000, y puede cambiar entre arranques). Nada de
+direcciones absolutas: el lanzador descubre la base con un primer pase de gdb
+(`info sharedlibrary`, el «From» de mp.dll − 0x1000) y genera el script con
+las direcciones corregidas. Validado en vivo: slot playback → función del
+motor, gpGlobals->time daba 37.55 con frametime 0.0166.
+
+Datos del reversing (RVAs sobre la base que toque):
+
+- `GiveFnptrsToDll` en RVA `0x29700`: `rep movsl` de 0x8f dwords a
+  **`g_engfuncs` = base+0xe0388**; `gpGlobals` se guarda en **base+0xe05c4**
+  (time = primer campo, float).
+- `pfnPlaybackEvent` = campo 124 de `enginefuncs_t` → slot g_engfuncs+**0x1ec**
+  (`pfnPrecacheEvent` en +0x1e8). 30 call sites en mp.dll (uno por arma) — por
+  eso el bp va en la función del motor, no en los call sites.
+- En la entrada (cdecl): +4 flags, +8 invoker, +0xc eventindex, +0x1c fparam1,
+  +0x20 fparam2, +0x24 iparam1, +0x28 iparam2. Del edict invoker (+0x80 entvars):
+  velocity +0xa0, view_ofs.z +0x1fc, flags +0x224.
+- **MÉTODO FINAL (28/08): LANZAR bajo gdb, NO attach.** El attach persistente
+  apaga el WON hiciera lo que hiciera (ver más abajo). `test_cs_won_trace.bat`
+  ahora arranca el hl.exe DESDE CERO bajo gdb con `--args`, breakpoint
+  PENDIENTE en `*0x1d628a0` (dirección de pfnPlaybackEvent, estable en las 5
+  pruebas de attach → hw.dll base fija sin ASLR; gdb la resuelve al mapear
+  hw.dll). Script: **`trace_cs_won.gdb`**. Sin base de mp.dll ni gpGlobals: el
+  log es `[N ev] f1= f2= i1= i2= vel= vofsz= flags=` (N = contador de disparo;
+  sin timestamp — cada disparo se autoclasifica por vel/vofsz/onground, como el
+  parser de Xash). Log a ruta absoluta del proyecto (cwd es C:\Sierra durante
+  la captura). **Un solo bat**, no hace falta CS13_WON.bat. La `trace_cs_won.ps1`
+  (attach) queda obsoleta pero se conserva por si el método launch fallara.
+- **Intento launch (29/08): el juego arranca COMPLETO y el jugador spawnea,
+  pero muere a los pocos segundos en partida** con `Dropped Player / Server
+  shutting down`, breakpoint sin saltar (0 `ev`). El `WSAENOTSOCK` del log es
+  benigno (socket IPX, sale en cualquier HL moderno). Diagnóstico: timeout de
+  red — bajo gdb el handshake local del listenserver se retrasa por las
+  suspensiones de arranque y el netchan tira el connection. **Última prueba de
+  red aplicada: `+sv_timeout 3600 +cl_timeout 3600` en el bat.** Si aún así
+  muere, es incompatibilidad de fondo del WON con correr bajo depurador →
+  PIVOTAR a la ruta de desensamblar el mp.dll (opción B): el mp.dll es idéntico
+  bit a bit entre Xash y WON, así que la fórmula de dispersión y sus
+  modificadores por estado son el MISMO código; se leen del binario y la
+  comparación se reduce a RNG + estado del jugador (que ya está medido en Xash).
+
+### CIERRE de la vía gdb-WON (29/08): IMPOSIBLE, y la conclusión indirecta
+
+- **El WON no corre bajo gdb, punto.** Probado attach y launch, con/sin
+  símbolos (`-iex auto-solib-add off`), ventana y fullscreen, timeouts a 3600.
+  Siempre igual: el juego arranca (con launch llega a cargar mapa y spawnear),
+  y a los segundos el **servidor se apaga** (`Server shutting down`) durante la
+  init de cliente/HUD. El breakpoint NUNCA salta (0 `ev`). El `WSAENOTSOCK` del
+  log es benigno (socket IPX). No es timeout (subirlo no cambió nada): es que el
+  build aborta su servidor en cuanto un depurador lo controla. **Medición
+  directa del host GoldSrc: descartada por este método.**
+
+- **Conclusión indirecta, pero fuerte (sin WON):**
+  1. El `mp.dll` es idéntico bit a bit entre Xash y WON → la fórmula de
+     dispersión y sus modificadores por estado son EL MISMO código. Ninguna
+     diferencia posible ahí; si algo difiere, es lo que el MOTOR alimenta al mod
+     (estado del jugador + RNG + ritmo de llamadas).
+  2. El log de Xash-host demuestra que el mod recibe el estado CORRECTO por
+     disparo (vel 0 quieto, 150-220 corriendo, onground=0 saltando, vofs=12
+     agachado) y que la envolvente de dispersión ESCALA como debe
+     (0.03 → 0.07 → 0.13-0.32). Que el spread siga el estado tan limpiamente
+     tiro a tiro es la prueba empírica de que CS lee el estado EN VIVO por
+     disparo, no de un buffer acumulado por snapshot.
+  3. Por tanto el bug clase-bípode (rate limiter sobre-llamando
+     UpdateClientData/GetWeaponData, que corrompía estado NO idempotente de
+     Firearms) NO aplica a la dispersión de CS: su spread se calcula por disparo
+     desde velocity/flags vivos, no se acumula entre snapshots. CS es idempotente
+     ahí (getters), a diferencia de Firearms.
+
+  **Veredicto: la dispersión de CS 1.3 se comporta igual en Xash-host que en
+  GoldSrc, y el mecanismo que desajustó a Firearms no la toca.** Lo que falta
+  para cerrarlo con número GoldSrc en mano no es alcanzable (WON no instrumentable).
+
+### GIRO (29/08): comparación vía CS 1.6, que SÍ corre en Steam (idea de Oscar)
+
+Oscar recordó que el dato de GoldSrc para Firearms se sacó SIN gdb: cliente
+Xash instrumentado contra un servidor GoldSrc de Steam, leyendo `[wd:RX]`. CS
+1.3 no corre en Steam, pero **CS 1.6 sí**. Los valores de arma 1.6 ≠ 1.3, pero
+el camino del MOTOR (lo que se rompía con el bípode) es agnóstico del mod/versión,
+así que una comparación limpia en 1.6 transfiere a 1.3 a nivel motor. Caveat: el
+método RX mide al que SE CONECTA, no al anfitrión (el bípode solo toca al host);
+por eso se combina con la medición de Xash-HOST.
+
+**Montado (29/08):** `cs16/` = copia del cstrike de Steam (CS 1.6 completo, 923MB,
+`C:\Program Files (x86)\Steam\steamapps\common\Half-Life\cstrike`). vgui.dll +
+vgui_support.dll ya en la raíz (reusados de Firearms/NS). Tres piezas:
+
+- **Pieza 1** `test_cs16_xash_host.bat` — Xash ANFITRIÓN (caso del bípode),
+  dbg_weapondata 2, log `cs16_host.log`, mapa aim_ak-colt. La medición clave.
+- **Pieza 2** `test_cs16_xash_vs_steam.bat` — cliente Xash → servidor CS 1.6 LAN
+  de Steam (GoldSrc). Log `cs16_vs_steam.log`, líneas `[wd:RX]` = referencia
+  GoldSrc. Método probado con Firearms (test_a_cliente_vs_goldsrc). Oscar crea
+  la partida LAN de Steam en aim_ak-colt primero.
+- **Pieza 3** `test_cs16_xash_server.bat` (servidor Xash dedicado) +
+  `test_cs16_xash_vs_xash.bat` (cliente) — control todo-Xash. Solo si 1 y 2
+  discrepan.
+
+**OJO sobre qué captura el RX en CS:** en Firearms el cono viajaba en weapon_data
+(estado), así que RX daba el cono de GoldSrc directo. En CS el cono es un
+parámetro del EVENTO de disparo calculado al tirar, y el disparo propio del
+cliente se PREDICE en local (client.dll de Xash con la semilla compartida del
+server). Habrá que mirar en el log qué trae el RX (¿m_flAccuracy en fuser/iuser
+de weapon_data? entonces sí es referencia GoldSrc de estado). Empírico: lo dirá
+el log. El parser `parse_cs_log.py` ya vale para los `ev events/*.sc` de Xash.
+
+**Siguiente paso:** Oscar corre la PIEZA 1 (arranca CS 1.6 en Xash de anfitrión,
+protocolo de ráfagas) → confirmar que 1.6 arranca en Xash y que el evento de
+disparo se captura, y medir cadencia/cono por estado como en 1.3. Luego pieza 2.
+
+### Opciones si se quiere más rigor (pendiente, decidir)
+
+- Desensamblar la rutina de disparo del mp.dll para fijar los multiplicadores
+  por estado en papel y confirmar que lee `pev->velocity`/`pev->flags` en vivo.
+  Confirmatorio, no puede revelar diferencia entre motores (mismo binario).
+  (Se localizó ya: tests de flags en `0x224(%ebp)`/`0x1a4(%eax)` y varias
+  `fsqrt` = Length2D de velocidad; la función exacta entre 184k líneas queda
+  sin aislar — agujero de horas, ROI bajo.)
+- Medición VISUAL cruda en WON (patrón de impactos por screenshot). Imprecisa y
+  va contra el método instrumental elegido, pero es lo único que corre en WON.
+- **CAUSA RAÍZ del cierre (28/08): gdb carga símbolos de ~40 DLLs de Windows al
+  hacer attach, y eso SUSPENDE el proceso varios segundos.** Durante la
+  congelación, el cliente local del listenserver hace timeout («Dropped Player
+  from server»), y sin jugador el servidor se apaga ordenado («Server shutting
+  down»). Se vio en el log: el juego cargaba mapa y sonidos y MORÍA antes de que
+  se disparara nada (0 líneas `[t ev]`). NO era el fullscreen (windowed murió
+  igual) ni el alt-tab. **Arreglo: `set auto-solib-add off` en gdb** → no carga
+  símbolos, el attach es casi instantáneo, no hay timeout. **OJO con el CÓMO:
+  tiene que ir por `-iex` (ANTES del `-p`), no en el `-x`/`-ex`.** Con
+  `gdb -p PID -x script`, gdb ATTACHA primero (y ahí carga los símbolos y
+  congela) y LUEGO lee el script — poner el `set auto-solib-add off` dentro del
+  script llega tarde y no sirve (fallo del primer intento con el flag). La
+  forma correcta: `gdb -q -batch -iex 'set auto-solib-add off' -p PID -x script`.
+  Aplicado así en `trace_cs_won.ps1` (sondeo y attach final). `CS13_WON.bat`
+  quedó en `-window` (da igual para la medición; se puede devolver a fullscreen).
+  Verificado que el offset del bp es correcto: `pfnPlaybackEvent` = idx 123 de
+  enginefuncs → +0x1ec (recontado; función fría, solo dispara al disparar).
+
+**Protocolo de ráfagas (el mismo que ya está capturado en Xash):** cargador
+entero de AK quieto de pie / agachado / corriendo / tap saltando, con pausas
+>2s entre ráfagas. Luego comparar tablas con `parse_cs_log.py` (adaptar el
+parser al formato del log WON cuando llegue la primera captura).
 
 ---
 
@@ -1240,3 +1454,119 @@ Compilado con MinGW/i386 sobre master actual antes de subir. Pendiente de revisi
 Estado general al cierre del 27/08: PRs #2726 (aprobado), #2729 y #2730
 (abiertos) esperando; #1371, #2728 y evobot#24 esperando respuesta; todo lo
 local funcionando (bípode, sprint, bunnyhop, physents, NaN, minimapa, lerk).
+
+---
+
+## 19. Ascensor giratorio de c1a0b: NO es de Xash, es la hl.dll (04/09)
+
+Síntoma (Oscar): en `c1a0b`, el ascensor que gira 90º al bajar. Si te pones cerca
+justo cuando arranca la bajada, se atasca, te quita algo de vida y **sube en vez
+de bajar** hasta tocar el techo. Pasa en Xash y en GoldSrc. La diferencia: en Xash
+luego **baja despacio** hasta la posición de partida; en GoldSrc (WON) toca techo
+y **se teletransporta** ahí sin hacer la bajada.
+
+### La entidad (volcada del BSP)
+
+`func_platrot` **`ele_2`**: `origin "136 608 -218"`, `height "-216"`,
+`rotation "90"`, `speed "80"`, `spawnflags "1"` (SF_PLAT_TOGGLE).
+
+El `height` es **negativo**, y en `CFuncPlat::Setup()`:
+`m_vecPosition2.z = origin.z - m_flHeight` = **−2**, o sea 216 unidades *por
+encima* de `m_vecPosition1` (−218). Para el código, "abajo" está arriba:
+`GoDown()` mueve físicamente hacia arriba y `GoUp()` hacia abajo.
+
+### Por qué te machaca y se invierte (los dos motores, es del SDK)
+
+`CFuncPlat::Blocked()`: `TakeDamage(1, DMG_CRUSH)` y **invierte el sentido**.
+Bajando visualmente = `TS_GOING_UP` en el código → al bloquear llama a `GoDown()`
+→ 216 unidades hacia arriba, contra el techo que tiene justo encima.
+
+### Por qué sobrepasa el techo (los dos motores, también del SDK)
+
+`CFuncPlatRot::RotMove(destAngle, time)` con `time < 0.1` entra por el `else`:
+`avelocity = vecDestDelta` y **`nextthink = ltime + 1`**, pisando el `nextthink`
+de llegada que había puesto `LinearMove`. La plataforma sigue a 80 u/s **un
+segundo entero** = 80 unidades de sobrepaso.
+
+**Condición para disparar el bug:** estorbarla en los primeros ~8 unidades /
+~0.1 s del recorrido (por eso "si te pones cerca": estás ahí cuando arranca).
+
+### La diferencia real: `LinearMoveDone`, que vive en la DLL del mod
+
+Traza del motor (`sv_trace_pushers`), caso malo bajo Xash:
+
+```
+lt=2.983 z=-3.33 vz=80.00 avy=-0.6 nt=3.983 d=1.000 BLOCKED   ← rama degenerada, nt=lt+1
+   ... 60 frames subiendo a 80 u/s ...
+lt=3.983 z=76.67 vz=-100.00      nt=4.770 d=0.787 THINK dz=0.00
+lt=4.770 z=-2.00 vz=0.00         nt=-1.000         THINK dz=0.00
+```
+
+`dz=0.00` → **en Xash no hay teletransporte**, y sale con `vz=-100` cuando su
+`speed` es 80. Ese −100 solo puede venir de la versión moderna de
+`CBaseToggle::LinearMoveDone`, que si el error supera 0.03125 hace
+`LinearMove(m_vecFinalDest, 100)` en vez de `UTIL_SetOrigin`. Cuadra al
+milímetro: de 76.67 a −2 hay 78.67 u, a 100 u/s = **0.787 s** = el `d=0.787`
+medido. La versión antigua no tiene ese `if` y hace el `UTIL_SetOrigin` a pelo:
+eso es exactamente el salto seco de GoldSrc.
+
+Caso que no dispara el bug, para contraste: `BLOCKED` con `d=0.133` (≥ 0.1) →
+rama normal, `avy=-33.3`, y para limpia en z=−2 con `dz=-0.00`.
+
+### CLAVE: se estaban comparando dos hl.dll distintas
+
+```
+1010576  md5 1ee54e18  valve/dlls/hl.dll  ==  Steam/steamapps/common/Half-Life  ← la que carga Xash
+ 966729  md5 2158e2e6  C:\Sierra\Half-Life\valve\dlls\hl.dll (5-jun-2002)       ← WON, la de GoldSrc
+```
+
+Byte a byte: la del proyecto **es** la de Steam. O sea que la comparación era
+Xash+DLL moderna contra GoldSrc+DLL de 2002, y lo que se veía distinto es el `if`
+que Valve añadió después a `LinearMoveDone`. Los dos motores hacen lo mismo:
+ambos logs tienen **un solo `Blocked by player` por intento** y la misma secuencia
+de `Firing: (ele_2)`.
+
+**Aviso para el resto de comparaciones Xash vs GoldSrc** (sección 18, armas de CS):
+con Sierra y el proyecto no se está aislando el motor. Hay que igualar la DLL del
+mod antes de atribuir nada a Xash.
+
+### Pendiente (la tabla, para cerrarlo con números por los dos lados)
+
+|            | DLL WON (2002)                   | DLL moderna                      |
+|------------|----------------------------------|----------------------------------|
+| **Xash**   | pendiente: `test_ascensor_c1a0b_won.bat` (predicción: `THINK dz=-78.67`) | MEDIDO: baja a 100 u/s, `dz=0.00` |
+| **GoldSrc**| MEDIDO: teletransporte           | pendiente: `test_ascensor_c1a0b_steam.bat` (predicción: baja despacio) |
+
+La de Steam es la prueba limpia: mismo motor GoldSrc que Sierra, DLL idéntica a la
+de Xash, **sin intercambiar ningún archivo**. Con `host_timescale 0.1` la bajada
+de 0.787 s se ve clarísima.
+
+### Instrumentación añadida (temporal, apagada por defecto)
+
+Cvar **`sv_trace_pushers`** (vacío = apagado): se le pasa un classname y traza una
+línea por frame de esa entidad `MOVETYPE_PUSH`.
+
+- `engine/server/sv_main.c:66` (definición), `engine/server/server.h:427` (extern)
+- `engine/server/sv_phys.c:1124` (la traza en `SV_Physics_Pusher`)
+
+Formato: `[push] t= lt= mt= z= vz= yaw= avy= nt= d= [BLOCKED] [THINK dz=]`, donde
+`d = nextthink - ltime` (el valor que mira `RotMove` contra 0.1) y `THINK dz=` es
+el salto del origen dentro del think (el teletransporte, medido en unidades).
+
+**Quitar cuando se cierre:**
+`git checkout engine/server/sv_phys.c engine/server/sv_main.c engine/server/server.h`
+y recompilar. Mientras el cvar esté vacío no molesta.
+
+### Lanzadores
+
+- `test_ascensor_c1a0b.bat` — Xash + DLL moderna, con traza (`ascensor_xash.log`)
+- `test_ascensor_c1a0b_won.bat` — Xash + DLL de WON (copia con respaldo, restaura al salir)
+- `test_ascensor_c1a0b_goldsrc.bat` — Sierra WON, menú: tal cual / con DLL moderna
+- `test_ascensor_c1a0b_steam.bat` — GoldSrc de Steam (log en su propio `valve/qconsole.log`)
+
+### Conclusión provisional
+
+Nada que arreglar en Xash. El bug de subir y machacarte es del **mapa**
+(`height "-216"`) más el reverse-on-block del SDK, está en el Half-Life original,
+y el sobrepaso es la rama degenerada de `RotMove`. El teletransporte final es
+exclusivo de la `hl.dll` de WON y Valve ya lo corrigió en builds posteriores.
