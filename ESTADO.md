@@ -585,22 +585,51 @@ eran legendarios ya en GoldSrc).
 no se ejecuta). Si Oscar quiere el chat, el plan B es parche binario al
 saltarse el caso «no encontrado» (como el del minimapa de NS).
 
-### Bunnyhop en CS: cap de velocidad parcheado (28/08)
+### Cap de velocidad del bunnyhop: quitado en CS 1.3 y en Half-Life (05/09)
 
-CS trae `PM_PreventMegaBunnyJumping` en su pm_shared (dlls cerrados): al
-despegar un salto, si la velocidad > 1.2 × pmove->maxspeed, la escala por
-(límite/vel) × 0.65. `sv_maxspeed` no influye (el límite usa el maxspeed por
-arma que fija el propio CS). Función idéntica en ambos lados:
+`PM_PreventMegaBunnyJumping`, del `pm_shared` del SDK, se llama desde `PM_Jump`:
+al despegar, si la velocidad supera `FACTOR * pmove->maxspeed`, la recorta a
+`(limite/velocidad) * 0.65`. El factor es **1.2 en CS** y **1.7 en Half-Life**.
+Se compila en el dll del mod, asi que **no hay nada que tocar en el motor**.
+`sv_maxspeed` no es atajo: en CS el limite sale del maxspeed por arma que fija el
+propio mod, y en HL subirlo te haria correr mas por el suelo tambien.
 
-- `mp.dll` VA 0x1004e5d0 (1.2f en 0x1008d210; 0.65 como DOUBLE en 0x10087c80
-  — por eso no salía escaneando floats)
-- `client.dll` VA 0x10039df0 (1.2f en 0x1006c600; double 0.65 en 0x10070a48)
+Prologo identico en los cuatro dlls, y por eso el mismo arreglo vale en todos:
 
-**Parche aplicado:** `ret` en el primer byte de la función, en los dos dlls
-(los dos o la predicción va a trompicones). `patches/patch_cs13_bhopcap.py`
-(verifica bytes, backups .orig). Pendiente de probar por Oscar. Si al
-aterrizar aún frena: sería la stamina (fuser2), mecanismo aparte — cazar si
-molesta.
+```
+51                push ecx
+8b 0d <pmove>     mov  ecx, [pmove]
+d9 81 f4 01 00 00 fld  dword ptr [ecx+0x1F4]   ; pmove->maxspeed
+d8 0d <factor>    fmul dword ptr [1.7f / 1.2f]
+```
+
+| dll | offset | factor |
+|---|---|---|
+| `valve/dlls/hl.dll`            | `0x6BDC0` | 1.7 |
+| `valve/cl_dlls/client.dll`     | `0x369A0` | 1.7 |
+| `cstrike13/dlls/mp.dll`        | `0x4E5D0` | 1.2 |
+| `cstrike13/cl_dlls/client.dll` | `0x39DF0` | 1.2 |
+
+**Arreglo:** `ret` (`0xC3`) en el primer byte. Hay que parchear **los dos lados**
+de cada juego o la prediccion del cliente va a trompicones.
+
+`patches/patch_bhopcap.py [valve|cs13|todo] [--revert]` — verifica los bytes antes
+de tocar nada, deja backup `.orig` y es idempotente.
+
+**Historia, para no volver a liarla:** el parche de CS se hizo el 28/08 sobre
+`cstrike/`, pero ese directorio pasó luego a ser otra version de CS y el 1.3 se
+movio a `cstrike13/`, que quedo con los dlls **sin parchear** (identicos a sus
+`.orig`). Por eso Oscar seguia notando el techo. **Aplicado de nuevo el 05/09**,
+ahora en los cuatro dlls y con las rutas correctas.
+
+**OJO — afecta a las secciones 18 y 19:** `valve/dlls/hl.dll` era byte a byte la
+de Steam, y las comparaciones Xash vs GoldSrc se apoyan en esa igualdad.
+Parcheada ya **no** lo es. Antes de comparar nada contra GoldSrc:
+`python patches/patch_bhopcap.py valve --revert`.
+
+Si al aterrizar aun frena, seria la stamina (`fuser2`), mecanismo aparte.
+
+**Pendiente:** probar por Oscar en los dos juegos.
 
 ### Aimbot tipo OGC (28/08)
 
