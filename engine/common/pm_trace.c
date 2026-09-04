@@ -44,6 +44,8 @@ static const vec3_t pm_hullmaxs[MAX_MAP_HULLS] =
 {  32,  32,  32 },
 };
 
+CVAR_DEFINE_AUTO( pm_trace_ladder, "0", 0, "debug: trace the ladder probe the mod does in PM_LadderMove" );
+
 void Pmove_Init( void )
 {
 	PM_InitBoxHull ();
@@ -797,6 +799,23 @@ float PM_TraceModel( playermove_t *pmove, physent_t *pe, float *start, float *en
 	}
 
 	VectorLerp( start, trace->fraction, end, trace->endpos );
+
+	// PM_TraceModel is only ever called by the mod, from PM_LadderMove: the probe from
+	// the player origin towards the centre of the ladder brush. Its plane normal is the
+	// direction the mod uses to kick you off the ladder when you press jump
+	// (velocity = normal * 270), so a null normal means jump does nothing.
+	if( pm_trace_ladder.value )
+	{
+		Con_Printf( "[ladder:%s] org=%.1f %.1f %.1f -> %.1f %.1f %.1f frac=%.3f start=%d all=%d "
+			"norm=%.2f %.2f %.2f vel=%.1f %.1f %.1f mt=%d og=%d%s\n",
+			pmove->server ? "SV" : "CL",
+			start[0], start[1], start[2], end[0], end[1], end[2],
+			trace->fraction, trace->startsolid, trace->allsolid,
+			trace->plane.normal[0], trace->plane.normal[1], trace->plane.normal[2],
+			pmove->velocity[0], pmove->velocity[1], pmove->velocity[2],
+			pmove->movetype, pmove->onground,
+			FBitSet( pmove->cmd.buttons, IN_JUMP ) ? " JUMP" : "" );
+	}
 
 	return trace->fraction;
 }

@@ -1,7 +1,7 @@
 # Xash3D + Firearms — estado de la investigación
 
-Última actualización: 2026-08-29 (comparación armas CS: WON descartado bajo gdb,
-pivotado a CS 1.6 vía Steam; tres piezas montadas, pendiente de correr)
+Última actualización: 2026-09-04 (ascensor de c1a0b CERRADO: no es de Xash;
+frente nuevo: el salto desde escalera no hace nada, instrumentado y listo para probar)
 
 ## Resumen
 
@@ -29,19 +29,29 @@ funciona con `host_limitlocal` en 0 y en 1, sin tocar nada en la consola.
 
 ## 0. Por dónde seguir
 
-**FRENTE ACTIVO (04/09): ascensor giratorio de c1a0b. Ver sección 19.**
+**FRENTE ACTIVO (04/09): saltar desde una escalera no hace nada. Ver sección 20.**
 
-Prácticamente cerrado: NO es de Xash. El bug es del mapa (`height "-216"` invierte
-el sentido) + el SDK, y la diferencia Xash/GoldSrc que se veía es que **son dos
-`hl.dll` distintas** (Steam vs WON de 2002); Valve arregló el teletransporte de
-`LinearMoveDone` en las builds nuevas.
+En Xash, subido a una `func_ladder`, pulsar saltar no despega de la escalera. El
+movimiento lo compila el mod (`PM_LadderMove` es código de Valve, idéntico en los dos
+motores), así que la diferencia tiene que estar en lo que el motor le sirve. Sospecha
+principal: `PM_TraceModel` devuelve el plano sin normal, y el salto es literalmente
+`velocity = plane.normal * 270` → cero.
 
-**SIGUIENTE PASO CONCRETO (mañana):** lanzar `test_ascensor_c1a0b_steam.bat`
-(GoldSrc de Steam = motor viejo + DLL moderna, sin tocar ningún archivo) y mirar
-si el ascensor **baja despacio en vez de saltar**, con `host_timescale 0.1`.
-Eso cierra la tabla de la sección 19 por el lado seguro. Opcional, la otra mitad:
-`test_ascensor_c1a0b_won.bat` (DLL de WON bajo Xash), que sí deja traza y debería
-dar `THINK dz=-78.67`. Al terminar, quitar la instrumentación (sección 19).
+**SIGUIENTE PASO CONCRETO: lanzar `test_escalera_salto.bat`** (ya compilado e
+instalado). Subirse a la escalera de `crossfire`, mirar de frente y pulsar saltar,
+repetir de lado y de espaldas. Deja `escalera.log` con líneas `[ladder:SV]` /
+`[ladder:CL]`. La tabla de la sección 20 dice qué significa cada caso.
+
+---
+
+**CERRADO (04/09): ascensor giratorio de c1a0b — NO es de Xash. Ver sección 19.**
+
+Confirmado por Oscar: en GoldSrc de Steam el ascensor se comporta **igual que en
+Xash**. La única variable era la `hl.dll` y el comportamiento la sigue a ella, no al
+motor. El bug de subir y machacarte es del mapa (`height "-216"`) más el
+reverse-on-block del SDK, y el teletransporte final es exclusivo de la DLL de WON de
+2002, que Valve ya corrigió. Nada que arreglar en Xash. Queda quitar la
+instrumentación `sv_trace_pushers` (sección 19).
 
 **OJO, afecta a la sección 18:** Sierra (WON) y el proyecto (Steam) no tienen la
 misma `hl.dll`, así que comparar Xash contra Sierra NO aísla el motor. Igualar la
@@ -1530,12 +1540,21 @@ de `Firing: (ele_2)`.
 con Sierra y el proyecto no se está aislando el motor. Hay que igualar la DLL del
 mod antes de atribuir nada a Xash.
 
-### Pendiente (la tabla, para cerrarlo con números por los dos lados)
+### CERRADO (04/09): confirmado por Oscar
+
+`test_ascensor_c1a0b_steam.bat` → **en GoldSrc de Steam el ascensor se comporta
+igual que en Xash**. Mismo motor GoldSrc que Sierra, misma `hl.dll` que carga Xash,
+sin intercambiar ningún archivo: la única variable era la DLL y el comportamiento
+la sigue a ella, no al motor. Queda demostrado que **la diferencia no es de Xash**,
+es el `if` que Valve añadió a `LinearMoveDone` después de la build de WON de 2002.
+La casilla que falta (Xash + DLL de WON) ya no aporta nada.
+
+### La tabla
 
 |            | DLL WON (2002)                   | DLL moderna                      |
 |------------|----------------------------------|----------------------------------|
-| **Xash**   | pendiente: `test_ascensor_c1a0b_won.bat` (predicción: `THINK dz=-78.67`) | MEDIDO: baja a 100 u/s, `dz=0.00` |
-| **GoldSrc**| MEDIDO: teletransporte           | pendiente: `test_ascensor_c1a0b_steam.bat` (predicción: baja despacio) |
+| **Xash**   | no medido (ya no hace falta)     | MEDIDO: baja a 100 u/s, `dz=0.00` |
+| **GoldSrc**| MEDIDO: teletransporte           | **MEDIDO 04/09: igual que Xash** (Oscar) |
 
 La de Steam es la prueba limpia: mismo motor GoldSrc que Sierra, DLL idéntica a la
 de Xash, **sin intercambiar ningún archivo**. Con `host_timescale 0.1` la bajada
@@ -1570,3 +1589,76 @@ Nada que arreglar en Xash. El bug de subir y machacarte es del **mapa**
 (`height "-216"`) más el reverse-on-block del SDK, está en el Half-Life original,
 y el sobrepaso es la rama degenerada de `RotMove`. El teletransporte final es
 exclusivo de la `hl.dll` de WON y Valve ya lo corrigió en builds posteriores.
+
+---
+
+## 20. EN CURSO: en Xash, saltar desde una escalera no hace nada (04/09)
+
+Sintoma (Oscar): subido a una `func_ladder`, pulsar saltar no hace nada. En GoldSrc
+te despega de la escalera de un empujon.
+
+### Donde vive el codigo (importante)
+
+El movimiento del jugador NO es del motor: `pm_shared.c` lo compila el mod, o sea
+que `PM_LadderMove` es codigo de Valve, **identico** en Xash y en GoldSrc. Por tanto
+la diferencia tiene que estar en lo que el motor le sirve al mod. Los tres candidatos,
+en orden:
+
+1. **La escalera no llega a `moveents`.** `PM_Ladder()` recorre `pmove->moveents`
+   buscando `pe->skin == CONTENTS_LADDER` y un modelo `mod_brush`. Lo llenan
+   `SV_AddLaddersToPmove` (`engine/server/sv_pmove.c:285`) y, en el cliente,
+   `engine/client/dll_int/cl_pmove.c:444`. Si falla, tampoco se podria trepar.
+2. **`PM_TraceModel` devuelve `fraction == 1.0`.** El mod hace
+   `PM_TraceModel(pLadder, origin, centroDeLaEscalera, &trace)` y **todo** el bloque
+   de movimiento relativo a la escalera (incluido el salto) esta dentro de
+   `if( trace.fraction != 1.0 )`.
+3. **`trace.plane.normal` sale a cero.** Es el caso mas probable y el que encaja
+   exacto con "no hace nada": el salto es literalmente
+   `VectorScale( trace.plane.normal, 270, pmove->velocity )`. Con normal nula la
+   velocidad queda en cero y ademas el `movetype` pasa a `MOVETYPE_WALK`, o sea que
+   te quedas pegado. Pasa cuando la traza **empieza dentro del brush**:
+   `PM_RecursiveHullCheck` (`engine/common/pm_trace.c:194`) sale con `allsolid`,
+   `fraction = 1.0` y el plano sin tocar.
+
+Revisado y descartado por lectura, todo cuadra con GoldSrc:
+`PM_TraceModel` fuerza `usehull = 2` (hull de punto) como hace GoldSrc;
+`PM_HullForBsp` calcula bien el `offset` (para el hull 0, `clip_mins` y
+`player_mins[2]` son nulos, asi que `offset = pe->origin`);
+`pfnGetModelBounds` (`engine/common/common.c:674`) devuelve `mod->mins/maxs` tal cual.
+
+### Instrumentacion anadida (temporal, apagada por defecto)
+
+Cvar **`pm_trace_ladder`** (0 = apagado). `PM_TraceModel` solo lo llama el mod desde
+`PM_LadderMove`, asi que una linea por llamada da justo el discriminador:
+
+```
+[ladder:SV] org=... -> ... frac=... start=N all=N norm=... vel=... mt=N og=N JUMP
+```
+
+- `engine/common/pm_trace.c` (cvar + la traza al final de `PM_TraceModel`)
+- `engine/common/pm_local.h` (extern), `engine/common/host.c` (registro + include)
+
+**Como se lee el log:**
+
+| Lo que se ve subido a la escalera | Que significa |
+|---|---|
+| No sale ninguna linea `[ladder:]` | Candidato 1: la escalera no llega a `moveents` |
+| Sale con `frac=1.000` | Candidato 2: la traza no alcanza el brush |
+| Sale con `norm=0.00 0.00 0.00` (y `start=1`) | Candidato 3: la traza arranca dentro del brush |
+| Sale con `norm` bueno y `JUMP`, y aun asi no salta | El motor sirve bien el dato; mirar aguas abajo |
+| `SV` bien y `CL` mal (o al reves) | Descuadre servidor/prediccion |
+
+**Quitar cuando se cierre:**
+`git checkout engine/common/pm_trace.c engine/common/pm_local.h engine/common/host.c`
+
+### Lanzador
+
+- `test_escalera_salto.bat` — Xash en `crossfire` con `pm_trace_ladder 1`,
+  log en `escalera.log`. Otros mapas con escalera: `stalkyard`, `boot_camp`, `t0a0d`.
+
+### Pendiente
+
+Correr el lanzador y leer el log. Si el motor sirve bien el dato (fila 4), el
+siguiente paso es comparar contra GoldSrc de Steam con el mismo mapa — y ahi vale
+el aviso de la seccion 19: la `hl.dll` del proyecto es la de Steam, asi que la
+comparacion contra Steam SI aisla el motor (contra Sierra no).

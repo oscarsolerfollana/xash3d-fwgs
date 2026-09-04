@@ -25,6 +25,7 @@ typedef int (*pfnIgnore)( physent_t *pe );	// custom trace filter
 // pm_trace.c
 //
 void Pmove_Init( void );
+extern convar_t pm_trace_ladder;
 void PM_InitBoxHull( void );
 hull_t *PM_HullForBsp( physent_t *pe, playermove_t *pmove, float *offset );
 qboolean PM_RecursiveHullCheck( hull_t *hull, int num, float p1f, float p2f, vec3_t p1, vec3_t p2, pmtrace_t *trace );
