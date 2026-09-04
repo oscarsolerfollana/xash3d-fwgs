@@ -424,6 +424,7 @@ extern convar_t		sv_password;
 extern convar_t		sv_uploadmax;
 extern convar_t		sv_upload_penalty_time;
 extern convar_t		sv_trace_messages;
+extern convar_t		sv_trace_pushers;
 extern convar_t		sv_enttools_enable;
 extern convar_t		sv_enttools_maxfire;
 extern convar_t		sv_autosave;

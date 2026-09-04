@@ -1126,10 +1126,14 @@ static void SV_Physics_Pusher( edict_t *ent )
 	float	oldtime;
 	float	thinktime, movetime;
 	edict_t	*pBlocker;
+	qboolean	trace, thought = false;
+	vec3_t	preorg = { 0.0f, 0.0f, 0.0f };
 
 	pBlocker = NULL;
 	oldtime = ent->v.ltime;
 	thinktime = ent->v.nextthink;
+
+	trace = sv_trace_pushers.string[0] && !Q_stricmp( sv_trace_pushers.string, SV_GetString( ent->v.classname ));
 
 	if( thinktime < oldtime + sv.frametime )
 	{
@@ -1182,7 +1186,18 @@ static void SV_Physics_Pusher( edict_t *ent )
 	{
 		ent->v.nextthink = 0.0f;
 		svgame.globals->time = sv.time;
+		VectorCopy( ent->v.origin, preorg );
 		svgame.dllFuncs.pfnThink( ent );
+		thought = true;
+	}
+
+	if( trace && !ent->free && ( pBlocker || thought || !VectorIsNull( ent->v.velocity ) || !VectorIsNull( ent->v.avelocity )))
+	{
+		Con_Printf( "[push] t=%.3f lt=%.3f mt=%.4f z=%.2f vz=%.2f yaw=%.1f avy=%.1f nt=%.3f d=%.3f%s%s\n",
+			sv.time, ent->v.ltime, movetime, ent->v.origin[2], ent->v.velocity[2],
+			ent->v.angles[1], ent->v.avelocity[1], ent->v.nextthink,
+			ent->v.nextthink - ent->v.ltime, pBlocker ? " BLOCKED" : "",
+			thought ? va( " THINK dz=%.2f", ent->v.origin[2] - preorg[2] ) : "" );
 	}
 }
 

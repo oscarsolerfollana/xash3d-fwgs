@@ -63,6 +63,7 @@ CVAR_DEFINE_AUTO( mp_logfile, "1", 0, "log multiplayer frags to console" );
 CVAR_DEFINE_AUTO( sv_log_singleplayer, "0", FCVAR_ARCHIVE, "allows logging in singleplayer games" );
 CVAR_DEFINE_AUTO( sv_log_onefile, "0", FCVAR_ARCHIVE, "logs server information to only one file" );
 CVAR_DEFINE_AUTO( sv_trace_messages, "0", FCVAR_LATCH, "enable server usermessages tracing (good for developers)" );
+CVAR_DEFINE_AUTO( sv_trace_pushers, "", 0, "debug: trace MOVETYPE_PUSH entities of this classname" );
 CVAR_DEFINE_AUTO( sv_master_response_timeout, "4", FCVAR_ARCHIVE, "master server heartbeat response timeout in seconds" );
 CVAR_DEFINE_AUTO( sv_autosave, "1", FCVAR_ARCHIVE|FCVAR_SERVER|FCVAR_PRIVILEGED, "enable autosaving" );
 CVAR_DEFINE_AUTO( sv_speedhack_kick, "10", FCVAR_ARCHIVE, "number of speedhack warns before automatic kick (0 to disable)" );
@@ -970,6 +971,7 @@ void SV_Init( void )
 	Cvar_RegisterVariable( &sv_voicequality );
 	Cvar_RegisterVariable( &sv_voice_singleplayer );
 	Cvar_RegisterVariable( &sv_trace_messages );
+	Cvar_RegisterVariable( &sv_trace_pushers );
 	Cvar_RegisterVariable( &sv_enttools_enable );
 	Cvar_RegisterVariable( &sv_enttools_maxfire );
 
