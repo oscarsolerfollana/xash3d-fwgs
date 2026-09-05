@@ -22,4 +22,4 @@ echo.
 echo  Pulsa una tecla para jugar.
 pause >nul
 cd /d "%~dp0"
-xash3d.exe -game cstrike -fullscreen +maxplayers 16 +sv_novis 1 +wallhack 0 +aimbot 0 +bunnyhop 1 +map cs_assault
+xash3d.exe -game cstrike13 -fullscreen +maxplayers 16 +sv_novis 1 +wallhack 0 +aimbot 0 +bunnyhop 1 +map cs_assault

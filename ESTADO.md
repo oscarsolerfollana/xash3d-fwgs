@@ -1,7 +1,7 @@
 # Xash3D + Firearms — estado de la investigación
 
-Última actualización: 2026-09-05 (salto desde escalera: cazado, lo comia nuestro
-propio parche de bunnyhop; arreglado y compilado, pendiente de verificar)
+Última actualización: 2026-09-05 (escalera VERIFICADA por Oscar; cap de velocidad
+del bunnyhop quitado en HL y en CS 1.3; plan de pruebas para mañana en la sección 0)
 
 ## Resumen
 
@@ -29,36 +29,85 @@ funciona con `host_limitlocal` en 0 y en 1, sin tocar nada en la consola.
 
 ## 0. Por dónde seguir
 
-**FRENTE ACTIVO (05/09): salto desde escalera — CAZADO Y ARREGLADO. Ver sección 20.**
+## PARA MAÑANA (06/09): qué tengo que probar
 
-No era de Xash: lo comía **nuestro propio parche de bunnyhop**. Para que `PM_Jump`
-vea una pulsación nueva al aterrizar, escondía el botón de salto mientras estabas en
-el aire — y una escalera, desde el cliente, parece el aire (`onground == -1`). La
-traza lo dejó claro: 2278 líneas, la traza contra el brush perfecta en todas
-(`frac=0.789`, `norm=0.00 1.00 0.00`), y **ni una sola con `JUMP`**.
+Por orden. Las tres primeras son cortas; la cuarta es la sesión larga.
 
-Arreglado: `cl.local` ahora guarda el `movetype` y el bunnyhop no toca el salto si
-es `MOVETYPE_FLY`. Compilado.
+### 1. Cap de velocidad del bunnyhop en HALF-LIFE (nuevo, sin probar)
 
-**SIGUIENTE PASO CONCRETO: lanzar `test_escalera_salto.bat`** y comprobar las dos
-cosas: que saltar en la escalera **te despega**, y que el bunnyhop **sigue botando**
-en suelo. Si va bien, quitar la instrumentación (sección 20).
+`test_escalera_salto.bat` (crossfire, ya lleva `bunnyhop 2`).
+
+Mantén saltar y encadena saltos. **Antes** el motor te recortaba la velocidad en
+cuanto pasabas de 1.7 × maxspeed; ahora ese recorte está parcheado en los dos dlls
+de `valve`. Lo que hay que ver: que **la velocidad ya no tiene techo**, que va
+subiendo salto a salto en vez de estancarse.
+
+Si al aterrizar aún notas un frenazo, eso ya no es el cap — sería la stamina
+(`fuser2`), mecanismo aparte que habría que cazar por su cuenta.
+
+### 2. Cap de velocidad del bunnyhop en CS 1.3 (nunca llegó a probarse)
+
+`cs_assault.bat`. Lo mismo: mantener saltar y ver si la velocidad sube sin techo.
+
+**Ojo, este lanzador estaba roto** y lo he arreglado hoy: apuntaba a `-game cstrike`,
+que ya no es el CS 1.3 con PODBot y el pack de trucos — eso vive ahora en
+`cstrike13/`. Por eso el parche del 28/08 parecía no hacer nada: se aplicó a unos
+dlls que luego se quedaron atrás en la mudanza.
+
+De paso, ya que estás en CS 1.3, quedan tres extras **sin verificar nunca**:
+el **wallhack v3** (PVS + skybox: mirar que se vea todo y que el cielo no tape el
+mundo translúcido), el **aimbot** y el **menú de trucos** (tecla ñ). Sección 11-bis.
+
+### 3. Confirmarme si quito la instrumentación
+
+Si 1 y 2 van bien, retiro las dos trazas de depuración, que ya cumplieron:
+
+- `pm_trace_ladder` (escalera) — `git checkout engine/common/pm_trace.c engine/common/pm_local.h engine/common/host.c`
+- `sv_trace_pushers` (ascensor) — `git checkout engine/server/sv_phys.c engine/server/sv_main.c engine/server/server.h`
+
+### 4. Armas de CS: PIEZA 1 (la sesión larga, sección 18)
+
+`test_cs16_xash_host.bat` — Xash de anfitrión en CS 1.6. Unirse a equipo, sacar el
+AK y disparar el protocolo de ráfagas: cargador entero **de pie**, pausa, cargador
+**agachado**, pausa, cargador **corriendo**, pausa, unos tiros **saltando**.
+Deja `cs16_host.log` y yo lo leo con `parse_cs_log.py`.
+
+**Estos cuatro lanzadores también estaban rotos** y los he arreglado hoy: pedían
+`-game cs16`, y ese directorio no existe — CS 1.6 está en `cstrike/`. De paso les he
+quitado el `-window` y van a pantalla completa.
+
+Luego vendría la PIEZA 2 (`test_cs16_xash_vs_steam.bat`, contra servidor LAN de CS
+1.6 de Steam) para la referencia GoldSrc por `[wd:RX]`. La PIEZA 3 solo si 1 y 2
+discrepan.
+
+### Aviso que arrastra todo lo demás
+
+`valve/dlls/hl.dll` **ya no es byte a byte la de Steam**: el parche del cap la ha
+tocado. Las conclusiones del ascensor (sección 19) y el aviso de las armas (sección
+18) se apoyaban en esa igualdad. Antes de comparar nada contra GoldSrc:
+
+```
+python patches/patch_bhopcap.py valve --revert
+```
 
 ---
 
-**CERRADO (04/09): ascensor giratorio de c1a0b — NO es de Xash. Ver sección 19.**
+### Ya cerrado esta semana
 
-Confirmado por Oscar: en GoldSrc de Steam el ascensor se comporta **igual que en
-Xash**. La única variable era la `hl.dll` y el comportamiento la sigue a ella, no al
-motor. El bug de subir y machacarte es del mapa (`height "-216"`) más el
-reverse-on-block del SDK, y el teletransporte final es exclusivo de la DLL de WON de
-2002, que Valve ya corrigió. Nada que arreglar en Xash. Queda quitar la
-instrumentación `sv_trace_pushers` (sección 19).
+**Salto desde escalera (05/09) — VERIFICADO por Oscar, funciona. Sección 20.**
+No era de Xash: lo comía nuestro propio parche de bunnyhop, que escondía el botón
+de salto en el aire y una escalera parece el aire (`onground == -1`). La traza lo
+dejó clarísimo: 2278 líneas con la traza contra el brush perfecta
+(`frac=0.789`, `norm=0.00 1.00 0.00`) y **ni una sola con `JUMP`**. Arreglado
+guardando el `movetype` en `cl.local`. Nada para upstream.
 
-**OJO, afecta a la sección 18:** Sierra (WON) y el proyecto (Steam) no tienen la
-misma `hl.dll`, así que comparar Xash contra Sierra NO aísla el motor. Igualar la
-DLL del mod antes de atribuirle nada a Xash — vale también para el `cstrike` de
-las pruebas de armas.
+**Ascensor giratorio de c1a0b (04/09) — NO es de Xash. Sección 19.**
+En GoldSrc de Steam se comporta igual que en Xash: la única variable era la
+`hl.dll` y el comportamiento la sigue a ella, no al motor. El machaque es del mapa
+(`height "-216"`) más el reverse-on-block del SDK; el teletransporte final es
+exclusivo de la DLL de WON de 2002, que Valve ya corrigió.
+
+---
 
 ---
 
@@ -629,7 +678,10 @@ Parcheada ya **no** lo es. Antes de comparar nada contra GoldSrc:
 
 Si al aterrizar aun frena, seria la stamina (`fuser2`), mecanismo aparte.
 
-**Pendiente:** probar por Oscar en los dos juegos.
+**Pendiente:** probar por Oscar en los dos juegos (plan de mañana, sección 0).
+`cs_assault.bat` apuntaba a `-game cstrike`, que ya es CS 1.6; corregido a
+`cstrike13`. Los cuatro `test_cs16_*.bat` pedían `-game cs16`, que no existe;
+corregidos a `cstrike` y pasados a pantalla completa.
 
 ### Aimbot tipo OGC (28/08)
 
