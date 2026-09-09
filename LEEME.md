@@ -35,7 +35,9 @@ config guardado diga otra cosa:
     wallhack 0.8     mundo translucido (0.1 a 0.95; 0 lo apaga)
     aimbot 180       cono en grados, 180 = toda la pantalla
     aimbot_head 0    0 = al pecho, 1 = a la cabeza
-    sv_novis 1       solo en cstrike13, o el wallhack no ensena nada nuevo
+    sv_novis 1       imprescindible en multijugador: sin el, el servidor no te
+                     manda los jugadores fuera de tu PVS y el wallhack no los
+                     puede ensenar. Solo cuenta si el servidor es tuyo.
 
 La **enye** (`bind SEMICOLON cheatmenu`) abre el menu numerado: 1 wallhack,
 2 aimbot (apagado / pecho / cabeza), 0 cerrar.
