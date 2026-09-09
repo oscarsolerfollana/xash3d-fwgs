@@ -134,9 +134,76 @@ AK a 10/s). Conclusión indirecta ya cerrada: la dispersión de CS se calcula po
 disparo, no acumulada entre snapshots → el bug clase-bípode NO la afecta. Lo de
 1.6 es para tener también el número de GoldSrc empírico.
 
-**PRs/issues (comprobado 29/08, sin novedad):** #2732 (welder) y #2730 (sprites
-lerk) ABIERTOS esperando review de a1batross, nada por hacer. Fusionados: #2722,
-#2726, #2729. #1371, #2728, evobot#24 en tejado ajeno.
+**PRs/issues (revisados por a1batross el 06/09, ambos con cambios pedidos):**
+- **#2732 (welder): REDUCIDO y empujado el 08/09.** Pidió dejar solo el hunk de
+  `sv_world.c` («everything else doesn't seem to mirror GoldSrc behavior»). Hecho:
+  rebase sobre master, fuera pm_trace/SV_HasClipPMoveToEntity/CL_HasClipPMoveToEntity,
+  commit `c030d823` (3+/2-), título/cuerpo del PR actualizados, respondido al hilo.
+  Compilado con MinGW/i386 (parches MinGW aplicados sin commitear en el worktree y
+  revertidos). **Welder VERIFICADO por Oscar el 09/09 con el motor recortado**
+  (ns_ayumi: chispas, ruido y soldadura completa); anotado en el hilo del PR.
+  Pendiente de que a1batross lo vea.
+  Para probar un motor de master en esta instalación hacen falta los 4 dlls del
+  build (xash, ref_gl, filesystem_stdio, menu: el API del renderer cambió) y
+  `-vguiloader vgui_support.dll`: master cargó freevgui como `vgui.dll`, pero el
+  freevgui de MinGW exporta nombres GCC y no sirve al client.dll MSVC de NS; el
+  `vgui_support.dll` viejo sigue valiendo (el API solo añade un campo al final).
+  Lanzador `test_welder_pr.bat`; `restaura_motor_local.bat` devuelve los `.local`.
+- **#2730 (sprites lerk): PENDIENTE DE REHACER.** Dos comentarios en `gl_sprite.c`:
+  «GoldSrc doesn't really check for texFormat when it decides the blending, it only
+  matters during texture load» y «I think we just implement the same blending
+  GoldSrc uses on sprites and a gl_spriteblend cvar». Es decir: no retocar el
+  parche, sino replicar el blending de GoldSrc para sprites y meterlo tras un cvar
+  `gl_spriteblend`. Confirmado que `hw.dll` de Steam tiene el cvar `gl_spriteblend`.
+  **EXPERIMENTO MONTADO el 09/09, SIN EJECUTAR AÚN (retomar aquí):**
+  - Script `patches/make_sprtest.py` (copiado del scratchpad; se puede reejecutar):
+    genera 4 sprites 64x64 con los MISMOS píxeles y paleta (blob negro→verde,
+    entrada 255 = verde) que solo difieren en texFormat: `sprites/sprtest_normal`,
+    `_additive`, `_indexalpha`, `_alphtest` (.spr v2 VP_PARALLEL). Y parchea el
+    lump de entidades de stalkyard → `maps/sprtest.bsp` con 12 env_sprites a 128
+    unidades delante del info_player_start (832 1104 56, yaw 180): fila z=136
+    rendermode 0 (lo que se mide), fila z=72 rendermode 2 (referencia). Orden
+    izq→dcha: NORMAL, ADDITIVE, INDEXALPHA, ALPHTEST, spore2 (NS), glow01 (HL).
+    Instalado en `valve/` de Steam y de Xash (spore2.spr copiado a Steam).
+  - Lanzadores: `test_sprites_goldsrc.bat` (gl_spriteblend 1, el default),
+    `test_sprites_goldsrc_noblend.bat` (gl_spriteblend 0), `test_sprites_xash.bat`
+    (lleva `-vguiloader vgui_support.dll` por si está el motor de master).
+  - Qué anotar de la fila de arriba en cada uno: cuál opaco (cuadrado negro
+    alrededor), cuál translúcido, cuál aditivo. Clave: la diferencia entre
+    gl_spriteblend 1 y 0 en Steam, que define la semántica del cvar que pide
+    a1batross. Con eso, rehacer el PR: replicar ese blending en `R_DrawSpriteModel`
+    (rama `fix/sprite-texformat-normal-mode`, sin worktree) tras un cvar
+    `gl_spriteblend`, y responder en el hilo.
+  - Hipótesis a contrastar: GoldSrc en modo normal SIEMPRE mezcla con
+    SRC_ALPHA/ONE_MINUS_SRC_ALPHA si gl_spriteblend=1 (y el texFormat solo cambia
+    cómo se sube la textura: indexalpha → alpha=índice, alphtest → 255 transparente,
+    additive → ?). Lo que salga con ADDITIVE en fila de arriba es lo que decide.
+  - MOTOR: el 09/09 por la tarde he devuelto los 4 dlls al **motor local**
+    (`restaura_motor_local.bat`), porque el de master reventaba al arrancar
+    (ver abajo). El build de master del PR 2732 esta guardado en
+    `motor_master_2732/` y se reinstala con `instala_motor_master.bat`.
+    Para medir la fila de arriba contra **Xash de serie** (sin nuestro parche de
+    sprites) hay que reinstalarlo, y entonces lanzar SIEMPRE con
+    `-vguiloader vgui_support.dll` — `test_sprites_xash.bat` ya lo lleva.
+
+**Cuelgue de VGUI con el motor de master (09/09, resuelto).** Al abrir `xash3d.exe`
+a pelo con el build de master instalado, `Sys_Crash` en `vgui.dll`
+(`TextImage::setText` -> `getTextSize` -> `getFont`, c0000005). No es un fallo del
+PR: master ya no busca `vgui_support.dll` por defecto, busca **`vgui.dll`** (commit
+ddf8fefa, FreeVGUI pasa a dar el API y se quita el shim). Comprobado en los
+binarios: el `xash.dll` de master lleva la cadena `vgui.dll` y el nuestro
+`vgui_support.dll`. Como aqui `vgui.dll` es el VGUI1 **de verdad de Valve**
+(MSVC6, con su .pdb de `goldsrc_win32`), no exporta `InitAPI`, `VGui_LoadProgs`
+falla y VGUI se queda sin inicializar; despues el `client.dll` de `valve` — que
+importa `vgui.dll` y usa `TextImage` — pinta sin App/Scheme y se va por un puntero
+nulo. Se cae tan pronto que el motor ni llega a leer `config.cfg` y al salir lo
+reescribe con los **valores por defecto**: se perdieron los binds. Recuperado de
+`valve/config.cfg.bak`; el config roto quedo en `valve/config.cfg.roto`.
+Arreglo: `-vguiloader vgui_support.dll` en el lanzador, o el motor local.
+
+- El job CI de psvita falla en los dos PRs pero las ejecuciones eran del 27-28/08 y
+  master pasa psvita el 08/09; el push del 2732 lo reejecuta.
+- Fusionados: #2722, #2726, #2729. #1371, #2728, evobot#24 en tejado ajeno.
 
 ---
 
@@ -1543,6 +1610,9 @@ Rama `fix/solid-custom-fallback-hull` desde `origin/master`, un solo commit a
 nombre de Oscar (mensaje en inglés, sin coletillas). Diff 46+/8-, SOLO el
 arreglo del welder (auditado: cero rastro de bunnyhop/aimbot/wallhack/dbg).
 Compilado con MinGW/i386 sobre master actual antes de subir. Pendiente de revisión.
+**08/09: reducido al hunk de `sv_world.c` a petición de a1batross** (ver sección de
+PRs al principio). Commit `c030d823`, forzado a `fork`. Worktree `xash3d-pr`
+reconfigurado (el waf viejo pedía la herramienta `vgui` que ya no existe).
 
 Estado general al cierre del 27/08: PRs #2726 (aprobado), #2729 y #2730
 (abiertos) esperando; #1371, #2728 y evobot#24 esperando respuesta; todo lo
