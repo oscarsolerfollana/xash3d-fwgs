@@ -25,6 +25,24 @@ En la carpeta oficial esos cuatro están sin tocar, byte a byte como los de Stea
 Si alguna vez hay que rehacerlos: copiar el de la carpeta oficial y pasarle
 `python patches/patch_bhopcap.py [valve|cs13|todo]` desde aquí.
 
+## Trucos y bunnyhop, activos de serie
+
+`valve/userconfig.cfg` y `cstrike13/userconfig.cfg` los encienden en cada arranque.
+Xash ejecuta ese fichero despues de `config.cfg`, asi que mandan siempre, aunque el
+config guardado diga otra cosa:
+
+    bunnyhop 1       re-salto automatico (2 = ademas lo cuenta por consola)
+    wallhack 0.8     mundo translucido (0.1 a 0.95; 0 lo apaga)
+    aimbot 180       cono en grados, 180 = toda la pantalla
+    aimbot_head 0    0 = al pecho, 1 = a la cabeza
+    sv_novis 1       solo en cstrike13, o el wallhack no ensena nada nuevo
+
+La **enye** (`bind SEMICOLON cheatmenu`) abre el menu numerado: 1 wallhack,
+2 aimbot (apagado / pecho / cabeza), 0 cerrar.
+
+Para otro juego basta con crear `custom-xash/<juego>/userconfig.cfg`; no hace falta
+copiar el juego entero, se sigue leyendo del `-rodir`.
+
 ## Ojo
 
 - Las configs son de esta carpeta, no las de la oficial. Los binds y los cvars de

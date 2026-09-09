@@ -374,3 +374,10 @@ GEMINI.md
 .continue/
 .codeium/
 .github/copilot-instructions.md
+
+# custom-xash: copias locales de dlls de juego que pisan a las del -rodir.
+# El texto (userconfig.cfg) si se versiona; los binarios no.
+/valve/**/*.dll
+/cstrike13/**/*.dll
+/valve/liblist.gam
+/cstrike13/liblist.gam
