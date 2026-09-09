@@ -22,4 +22,4 @@ echo.
 echo  Pulsa una tecla para empezar.
 pause >nul
 cd /d "%~dp0"
-xash3d.exe -game ns -vguiloader vgui_support.dll -fullscreen -dev 2 -log welder_pr.log +sv_cheats 1 +maxplayers 8 +map ns_ayumi
+xash3d.exe -rodir C:/Users/Oscar/Proyectos/xash3d -game ns -vguiloader vgui_support.dll -fullscreen -dev 2 -log welder_pr.log +sv_cheats 1 +maxplayers 8 +map ns_ayumi

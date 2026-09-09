@@ -21,4 +21,4 @@ echo.
 echo  Pulsa una tecla para empezar.
 pause >nul
 cd /d "%~dp0"
-xash3d.exe -game ns -fullscreen +sv_cheats 1 +maxplayers 6 +aimbot 0 +bunnyhop 0 +cl_lw 1 +exec semifire.cfg +map ns_machina
+xash3d.exe -rodir C:/Users/Oscar/Proyectos/xash3d -game ns -fullscreen +sv_cheats 1 +maxplayers 6 +aimbot 0 +bunnyhop 0 +cl_lw 1 +exec semifire.cfg +map ns_machina

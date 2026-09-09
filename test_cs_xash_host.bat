@@ -17,4 +17,4 @@ echo.
 echo  Pulsa una tecla.
 pause >nul
 cd /d "%~dp0"
-xash3d.exe -game cstrike -console -window -width 1024 -height 768 +sv_lan 1 +sv_cheats 1 +mp_autoteambalance 0 +mp_limitteams 0 +maxplayers 2 +dbg_weapondata 2 -log cs_xash.log +map aim_ak-colt +wallhack 0 +aimbot 0
+xash3d.exe -rodir C:/Users/Oscar/Proyectos/xash3d -game cstrike -console -window -width 1024 -height 768 +sv_lan 1 +sv_cheats 1 +mp_autoteambalance 0 +mp_limitteams 0 +maxplayers 2 +dbg_weapondata 2 -log cs_xash.log +map aim_ak-colt +wallhack 0 +aimbot 0

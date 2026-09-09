@@ -21,4 +21,4 @@ echo.
 echo  Pulsa una tecla cuando el servidor de Steam este creado.
 pause >nul
 cd /d "%~dp0"
-xash3d.exe -game cstrike -console -fullscreen +dbg_weapondata 2 -log cs16_vs_steam.log +connect 127.0.0.1:27015 +wallhack 0 +aimbot 0
+xash3d.exe -rodir C:/Users/Oscar/Proyectos/xash3d -game cstrike -console -fullscreen +dbg_weapondata 2 -log cs16_vs_steam.log +connect 127.0.0.1:27015 +wallhack 0 +aimbot 0

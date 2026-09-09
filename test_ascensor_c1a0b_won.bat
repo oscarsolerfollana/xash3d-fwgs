@@ -18,7 +18,7 @@ echo  Pulsa una tecla.
 pause >nul
 copy /y "valve\dlls\hl.dll" "valve\dlls\hl.dll.orig" >nul
 copy /y "%DLLWON%" "valve\dlls\hl.dll" >nul
-xash3d.exe -game valve -console -fullscreen -log ascensor_won.log -dev 2 +sv_cheats 1 +sv_trace_pushers func_platrot +map c1a0b
+xash3d.exe -rodir C:/Users/Oscar/Proyectos/xash3d -game valve -console -fullscreen -log ascensor_won.log -dev 2 +sv_cheats 1 +sv_trace_pushers func_platrot +map c1a0b
 copy /y "valve\dlls\hl.dll.orig" "valve\dlls\hl.dll" >nul
 del "valve\dlls\hl.dll.orig" >nul
 echo.

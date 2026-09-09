@@ -12,4 +12,4 @@ echo.
 echo  Pulsa una tecla para empezar.
 pause >nul
 cd /d "%~dp0"
-xash3d.exe -game valve -vguiloader vgui_support.dll -fullscreen -dev 1 -log sprtest_xash.log +sv_cheats 1 +map sprtest
+xash3d.exe -rodir C:/Users/Oscar/Proyectos/xash3d -game valve -vguiloader vgui_support.dll -fullscreen -dev 1 -log sprtest_xash.log +sv_cheats 1 +map sprtest

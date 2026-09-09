@@ -22,4 +22,4 @@ echo.
 echo  Pulsa una tecla para empezar.
 pause >nul
 cd /d "%~dp0"
-xash3d.exe -game ns32 -fullscreen +sv_cheats 1 +maxplayers 6 +bind q lastinv +map ns_eclipse
+xash3d.exe -rodir C:/Users/Oscar/Proyectos/xash3d -game ns32 -fullscreen +sv_cheats 1 +maxplayers 6 +bind q lastinv +map ns_eclipse

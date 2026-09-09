@@ -24,7 +24,7 @@ echo   Log: escalera.log
 echo.
 echo  Pulsa una tecla.
 pause >nul
-xash3d.exe -game valve -console -fullscreen -log escalera.log -dev 2 +sv_cheats 1 +bunnyhop 2 +pm_trace_ladder 1 +map crossfire
+xash3d.exe -rodir C:/Users/Oscar/Proyectos/xash3d -game valve -console -fullscreen -log escalera.log -dev 2 +sv_cheats 1 +bunnyhop 2 +pm_trace_ladder 1 +map crossfire
 echo.
 echo   Log en escalera.log
 pause

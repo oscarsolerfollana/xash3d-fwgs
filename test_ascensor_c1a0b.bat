@@ -16,4 +16,4 @@ echo.
 echo  Pulsa una tecla.
 pause >nul
 cd /d "%~dp0"
-xash3d.exe -game valve -console -fullscreen -log ascensor_xash.log -dev 2 +sv_cheats 1 +sv_trace_pushers func_platrot +map c1a0b
+xash3d.exe -rodir C:/Users/Oscar/Proyectos/xash3d -game valve -console -fullscreen -log ascensor_xash.log -dev 2 +sv_cheats 1 +sv_trace_pushers func_platrot +map c1a0b
