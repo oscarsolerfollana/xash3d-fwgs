@@ -218,6 +218,61 @@ double CL_GetDemoFramerate( void )
 }
 
 /*
+====================
+CL_DemoGetTime
+
+where the playback is, counting every section before the current one
+====================
+*/
+float CL_DemoGetTime( void )
+{
+	float time = demo.timestamp;
+	int i;
+
+	if( !cls.demoplayback || !demo.directory.entries )
+		return 0.0f;
+
+	for( i = 0; i < demo.entryIndex && i < demo.directory.numentries; i++ )
+		time += demo.directory.entries[i].playback_time;
+
+	return time;
+}
+
+/*
+====================
+CL_DemoGetLength
+
+how long the whole demo lasts
+====================
+*/
+float CL_DemoGetLength( void )
+{
+	float length = 0.0f;
+	int i;
+
+	if( !cls.demoplayback || !demo.directory.entries )
+		return 0.0f;
+
+	for( i = 0; i < demo.directory.numentries; i++ )
+		length += demo.directory.entries[i].playback_time;
+
+	return length;
+}
+
+/*
+====================
+CL_DemoResyncClock
+
+after reading ahead as fast as possible, carry on at normal speed from
+the last message read instead of rushing to catch up with the clock
+====================
+*/
+void CL_DemoResyncClock( void )
+{
+	demo.starttime = CL_GetDemoPlaybackClock() - demo.timestamp;
+}
+
+/*
 =================
 CL_DemoAborted
 =================
@@ -978,7 +1033,7 @@ qboolean CL_DemoReadMessage( byte *buffer, size_t *length )
 		return false;
 	}
 
-	if(( !cl.background && ( cl.paused || cls.key_dest != key_game )) || cls.key_dest == key_console )
+	if(( !cl.background && ( cl.paused || CL_DemoCtlPaused() || cls.key_dest != key_game )) || cls.key_dest == key_console )
 	{
 		demo.starttime += host.frametime;
 		return false; // paused
@@ -1018,7 +1073,8 @@ qboolean CL_DemoReadMessage( byte *buffer, size_t *length )
 
 		// we already have the usercmd_t for this frame
 		// don't read next usercmd_t so predicting will work properly
-		if( cmd == dem_usercmd && lastpos != 0 && demo.framecount != 0 )
+		// unless it's seeking, then any number of them go in one frame
+		if( cmd == dem_usercmd && lastpos != 0 && demo.framecount != 0 && !CL_DemoCtlSeeking( ))
 		{
 			FS_Seek( cls.demofile, lastpos, SEEK_SET );
 			return false; // not time yet.
@@ -1055,7 +1111,7 @@ qboolean CL_DemoReadMessage( byte *buffer, size_t *length )
 
 	// If we are playing back a timedemo, and we've already passed on a
 	//  frame update for this host_frame tag, then we'll just skip this message.
-	if( cls.timedemo && ( tdlastdemoframe == host.framecount ))
+	if( cls.timedemo && ( tdlastdemoframe == host.framecount ) && !CL_DemoCtlSeekMore( ))
 	{
 		FS_Seek( cls.demofile, FS_Tell ( cls.demofile ) - 5, SEEK_SET );
 		return false;

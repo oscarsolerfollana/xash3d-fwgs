@@ -750,6 +750,10 @@ void GAME_EXPORT Key_Event( int key, int down )
 	if( CL_DemoCamKey( key, down ))
 		return;
 
+	// and pause, speed, seeking and the radar
+	if( CL_DemoCtlKey( key, down ))
+		return;
+
 #ifdef HACKS_RELATED_HLMODS
 	if(( cls.key_dest == key_game ) && ( cls.state == ca_cinematic ) && ( key != K_ESCAPE || !down ))
 	{

@@ -130,6 +130,18 @@ CL_DemoCamHideEntity
 the followed player is not drawn in first person, we're inside his head
 =================
 */
+/*
+=================
+CL_DemoCamTarget
+
+the player the camera follows, 0 on the recorded view
+=================
+*/
+int CL_DemoCamTarget( void )
+{
+	return CL_DemoCamActive() ? democam_target : 0;
+}
+
 qboolean CL_DemoCamFirstPerson( void )
 {
 	return democam_mode == DEMOCAM_FIRSTPERSON && CL_DemoCamActive();
@@ -218,6 +230,10 @@ every demo starts on the recorded view
 */
 void CL_DemoCamReset( void )
 {
+	// started again only to go back in time, keep following the same player
+	if( CL_DemoCtlRestarting( ))
+		return;
+
 	democam_mode = DEMOCAM_RECORDED;
 	democam_target = 0;
 	memset( democam_silenced, 0, sizeof( democam_silenced ));

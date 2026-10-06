@@ -94,6 +94,37 @@ que la demo solo se cierra bien al desconectar o salir del juego; si el juego se
 cuelga o se mata el proceso, esa demo no se puede abrir ("bogus # of directory
 entries").
 
+## Controles al ver una demo
+
+`engine/client/cl_democtl.c`, junto a la camara de demo:
+
+    P                pausa
+    flechas arriba/abajo       velocidad, de x0.25 a x8
+    flechas derecha/izquierda  10 segundos adelante / atras
+    RePag / AvPag    1 minuto adelante / atras
+    Inicio           al principio
+    M                radar: en una esquina, a pantalla completa, quitado
+
+Por consola: `democtl_pause`, `democtl_seek <segundos>`, `democtl_skip
+<segundos>`, `democtl_speed <x>`, `democtl_radar <0-2>`.
+
+Ir adelante pone la demo en modo `timedemo` (sin limite de fps), con el sonido a
+0 desde `S_GetMasterVolume`, y lee hasta 100 mensajes por fotograma: se salta la
+regla de un `usercmd` por fotograma, que es la que lo frenaba (la demo guarda un
+`usercmd` por fotograma del cliente y solo ~20 paquetes por segundo). Dos minutos
+tardan unos 24 fotogramas. Los mensajes de chat de ese tramo salen de golpe.
+
+Hacia atras no se puede: la demo solo guarda lo que cambia de un momento al
+siguiente. Se vuelve a cargar (`playdemo "<nombre>.dem"`) y se avanza hasta el
+momento pedido; la camara sigue al mismo jugador.
+
+El radar usa `overviews/<mapa>.txt` y `.bmp`, los de HLTV. El `.bmp` pinta de
+verde puro lo que queda fuera del mapa; al cargarlo se cambia por negro. Sin
+overview, el radar abarca todo el mapa sobre fondo oscuro. La colocacion es la de
+HLTV: sin rotar, +X hacia arriba y +Y a la izquierda; rotado, +X a la derecha y
++Y hacia arriba (comprobado en cs_assault, no rotado: los T salen en el almacen y
+los CT en la calle). El equipo se saca del modelo del jugador.
+
 ## Ojo
 
 - Las configs son de esta carpeta, no las de la oficial. Los binds y los cvars de

@@ -123,6 +123,10 @@ float S_GetMasterVolume( void )
 		return 0.0f;
 	}
 
+	// a demo going forward as fast as it can would play everything at once
+	if( CL_DemoCtlSeeking( ))
+		return 0.0f;
+
 	// apparently goldsrc doesn't care about soundfade
 	// despite this, let's keep support for it
 	if( cls.key_dest != key_menu && soundfade.percent != 0 )

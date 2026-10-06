@@ -923,6 +923,22 @@ void CL_DemoCamReset( void );
 void CL_DemoCamInit( void );
 void CL_DemoCamApply( ref_params_t *fd );
 void CL_DemoCamEvent( const char *name, const event_args_t *args );
+int CL_DemoCamTarget( void );
+
+// cl_democtl.c
+qboolean CL_DemoCtlPaused( void );
+qboolean CL_DemoCtlSeeking( void );
+qboolean CL_DemoCtlSeekMore( void );
+qboolean CL_DemoCtlRestarting( void );
+qboolean CL_DemoCtlKey( int key, qboolean down );
+void CL_DemoCtlFrame( void );
+void CL_DemoCtlDraw( void );
+void CL_DemoCtlInit( void );
+
+// cl_demo.c
+float CL_DemoGetTime( void );
+float CL_DemoGetLength( void );
+void CL_DemoResyncClock( void );
 
 static inline qboolean CL_IsThirdPerson( void )
 {

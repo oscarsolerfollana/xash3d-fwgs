@@ -558,6 +558,7 @@ void V_PostRender( void )
 		IN_GyroDrawDebug();
 		SV_DrawOrthoTriangles();
 		CL_DrawDemoRecording();
+		CL_DemoCtlDraw();
 		CL_DrawHUD( CL_CHANGELEVEL );
 		ref.dllFuncs.R_ShowTextures();
 		R_ShowTree();

@@ -3272,7 +3272,9 @@ static void CL_ReadPackets( void )
 	// decide the simulation time
 	cl.oldtime = cl.time;
 
-	if( !cl.paused )
+	CL_DemoCtlFrame();
+
+	if( !cl.paused && !CL_DemoCtlPaused( ))
 		cl.time += host.frametime;
 
 	// demo time
@@ -3875,6 +3877,7 @@ static void CL_InitLocal( void )
 	Cvar_RegisterVariable( &aimbot );
 	Cvar_RegisterVariable( &aimbot_head );
 	CL_DemoCamInit();
+	CL_DemoCtlInit();
 	Cmd_AddCommand( "cheatmenu", CL_CheatMenu_f, "toggle the numbered cheat menu (wallhack/aimbot)" );
 	Cvar_RegisterVariable( &cl_idealpitchscale );
 	Cvar_RegisterVariable( &cl_solid_players );
