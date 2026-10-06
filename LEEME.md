@@ -45,6 +45,47 @@ La **enye** (`bind SEMICOLON cheatmenu`) abre el menu numerado: 1 wallhack,
 Para otro juego basta con crear `custom-xash/<juego>/userconfig.cfg`; no hace falta
 copiar el juego entero, se sigue leyendo del `-rodir`.
 
+## Demos con camara libre (como HLTV)
+
+`engine/client/cl_democam.c`: al reproducir una demo se puede seguir a cualquier
+jugador, no solo ver lo que vio quien la grabo. No necesita nada del client.dll,
+asi que vale para CS 1.3:
+
+    clic izquierdo / derecho   siguiente / anterior jugador
+    espacio                    vista grabada -> primera persona -> tercera
+    democam_next, democam_prev, democam_mode   lo mismo por consola
+
+Para que la demo tenga a todos hay que grabarla con `sv_novis 1` en un servidor
+propio: si no, el servidor solo manda los jugadores cercanos. Ademas
+`cl_demo.c` ahora mete en la demo los datos (nombre, modelo) de los que ya
+estaban jugando al empezar a grabar; antes salian sin nombre.
+
+En primera persona se ve el arma del jugador seguido. La demo no la guarda, asi
+que se deduce: el arma en mano es la `v_` de la que lleva en el modelo
+(`p_ak47.mdl` -> `v_ak47.mdl`), y sus animaciones salen de la del cuerpo del
+jugador. CS pone `ref_shoot_*` / `ref_reload_*` en el torso y cada disparo
+vuelve a empezar esa secuencia desde el frame 0 (el `animtime` no sirve: el
+servidor lo renueva en cada frame; el frame llega redondeado y baila 1-2, por
+eso solo cuenta una bajada de mas de 4). En el arma se busca la secuencia por
+nombre: `shoot*` (o `slash`, `throw`, `pressbutton`), `reload` (o `insert` en
+las escopetas), `draw` al cambiar de arma, `idle` al acabar; si el arma tiene
+variantes `_unsil` se usan esas, que es como salen sin silenciador. Limites: la
+escopeta recarga un cartucho, al agacharse disparando puede salir un disparo de
+mas, y en rafagas largas (20 paquetes por segundo) alguno de menos.
+
+Cosas que ya traia Xash y aqui solo se usan: `record`/`playdemo`,
+`cl_autorecord` y `sv_novis`.
+
+`juego/cs_assault_grabando.bat` juega cs_assault con bots y graba sola la
+partida (`cl_autorecord 1`), y `juego/ver_demo.bat` reproduce la ultima. Las
+demos de `cl_autorecord` llevan puntos en el nombre: a `playdemo` hay que
+pasarle el nombre con `.dem`, si no corta por el primer punto.
+
+Grabar cuesta poco: unos 20-25 MB por hora y casi nada de CPU. Lo delicado es
+que la demo solo se cierra bien al desconectar o salir del juego; si el juego se
+cuelga o se mata el proceso, esa demo no se puede abrir ("bogus # of directory
+entries").
+
 ## Ojo
 
 - Las configs son de esta carpeta, no las de la oficial. Los binds y los cvars de

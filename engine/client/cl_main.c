@@ -3874,6 +3874,7 @@ static void CL_InitLocal( void )
 	Cvar_RegisterVariable( &bunnyhop );
 	Cvar_RegisterVariable( &aimbot );
 	Cvar_RegisterVariable( &aimbot_head );
+	CL_DemoCamInit();
 	Cmd_AddCommand( "cheatmenu", CL_CheatMenu_f, "toggle the numbered cheat menu (wallhack/aimbot)" );
 	Cvar_RegisterVariable( &cl_idealpitchscale );
 	Cvar_RegisterVariable( &cl_solid_players );

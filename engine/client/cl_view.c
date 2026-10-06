@@ -405,6 +405,7 @@ void V_RenderView( void )
 	do
 	{
 		clgame.dllFuncs.pfnCalcRefdef( &rp );
+		CL_DemoCamApply( &rp );
 		V_GetRefParams( &rp, &rvp );
 		V_RefApplyOverview( &rvp );
 		V_ApplyRefUnderwater( &rvp );
