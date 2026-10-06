@@ -134,7 +134,7 @@ CVAR_DEFINE_AUTO( sv_enttools_maxfire, "5", FCVAR_ARCHIVE|FCVAR_PROTECTED, "limi
 
 CVAR_DEFINE( public_server, "public", "0", 0, "change server type from private to public" );
 
-CVAR_DEFINE_AUTO( sv_novis, "0", 0, "force to ignore server visibility" );			// disable server culling entities by vis
+CVAR_DEFINE_AUTO( sv_novis, "1", 0, "force to ignore server visibility" );			// disable server culling entities by vis
 CVAR_DEFINE( sv_pausable, "pausable", "1", 0, "allow players to pause or not" );
 CVAR_DEFINE( sv_maxclients, "maxplayers", "1", FCVAR_LATCH, "server max capacity" );
 CVAR_DEFINE_AUTO( sv_check_errors, "0", FCVAR_ARCHIVE, "check edicts for errors" );
