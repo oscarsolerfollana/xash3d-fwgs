@@ -922,6 +922,7 @@ qboolean CL_DemoCamKey( int key, qboolean down );
 void CL_DemoCamReset( void );
 void CL_DemoCamInit( void );
 void CL_DemoCamApply( ref_params_t *fd );
+void CL_DemoCamEvent( const char *name, const event_args_t *args );
 
 static inline qboolean CL_IsThirdPerson( void )
 {

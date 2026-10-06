@@ -50,6 +50,24 @@ enum
 static int democam_mode;
 static int democam_target; // entity index, 1..maxclients
 
+/*
+the demo can't show a silencer being put on or taken off, that animation
+only plays for whoever does it, but every shot says whether it was there:
+CS sends it as one of the boolean parameters of the weapon event
+*/
+static const struct
+{
+	const char *event;
+	const char *viewmodel;
+	int        bparam;
+} democam_silencers[] =
+{
+	{ "events/m4a1.sc", "v_m4a1", 1 },
+	{ "events/usp.sc",  "v_usp",  2 },
+};
+
+static qboolean democam_silenced[MAX_CLIENTS + 1][ARRAYSIZE( democam_silencers )];
+
 static qboolean CL_DemoCamValidTarget( int index )
 {
 	cl_entity_t *ent;
@@ -202,6 +220,7 @@ void CL_DemoCamReset( void )
 {
 	democam_mode = DEMOCAM_RECORDED;
 	democam_target = 0;
+	memset( democam_silenced, 0, sizeof( democam_silenced ));
 }
 
 static void CL_DemoCamDrawInfo( void )
@@ -281,6 +300,44 @@ static const char *democam_anim_names[][4] =
 	{ "reload", "insert", NULL }, // shotguns reload shell by shell
 };
 
+/*
+=================
+CL_DemoCamEvent
+
+every event played back goes through here, the weapon ones tell
+whether the player who fired had the silencer on
+=================
+*/
+void CL_DemoCamEvent( const char *name, const event_args_t *args )
+{
+	int i;
+
+	if( !cls.demoplayback || args->entindex < 1 || args->entindex > MAX_CLIENTS )
+		return;
+
+	for( i = 0; i < ARRAYSIZE( democam_silencers ); i++ )
+	{
+		if( !Q_stricmp( name, democam_silencers[i].event ))
+			democam_silenced[args->entindex][i] = democam_silencers[i].bparam == 1 ? args->bparam1 : args->bparam2;
+	}
+}
+
+static qboolean CL_DemoCamSilenced( const cl_entity_t *ent, const model_t *viewmodel )
+{
+	int i;
+
+	if( ent->index < 1 || ent->index > MAX_CLIENTS )
+		return false;
+
+	for( i = 0; i < ARRAYSIZE( democam_silencers ); i++ )
+	{
+		if( Q_stristr( viewmodel->name, democam_silencers[i].viewmodel ))
+			return democam_silenced[ent->index][i];
+	}
+
+	return false;
+}
+
 static mstudioseqdesc_t *CL_DemoCamSequences( model_t *model, int *numseq )
 {
 	studiohdr_t *hdr = (studiohdr_t *)Mod_StudioExtradata( model );
@@ -298,10 +355,10 @@ CL_DemoCamFindSequence
 
 viewmodels have no activities, but their sequences are named the same
 way: idle1, shoot2, reload, draw... Weapons with a silencer have a second
-set ending in _unsil, used when it's off, which is how they come
+set ending in _unsil, used when it's off
 =================
 */
-static int CL_DemoCamFindSequence( model_t *model, int anim )
+static int CL_DemoCamFindSequence( model_t *model, int anim, qboolean silenced )
 {
 	static int shot;
 	mstudioseqdesc_t *seq;
@@ -316,6 +373,10 @@ static int CL_DemoCamFindSequence( model_t *model, int anim )
 		if( Q_stristr( seq[i].label, "_unsil" ))
 			unsil = true;
 	}
+
+	// with the silencer on, the plain names are the ones
+	if( silenced )
+		unsil = false;
 
 	for( j = 0; j < 4 && democam_anim_names[anim][j] && !numfound; j++ )
 	{
@@ -406,9 +467,11 @@ static int CL_DemoCamPlayerAnim( const cl_entity_t *ent )
 static void CL_DemoCamSetupViewModel( const cl_entity_t *ent, const vec3_t eyes, const vec3_t angles )
 {
 	static int last_index, last_target, sequence;
+	static qboolean last_silenced;
 	static float anim_end;
 	cl_entity_t *view = &clgame.viewent;
 	int index = 0, anim, newseq = -1, numseq;
+	qboolean silenced;
 
 	view->model = CL_DemoCamViewModel( ent, &index );
 	view->curstate.modelindex = index;
@@ -417,28 +480,32 @@ static void CL_DemoCamSetupViewModel( const cl_entity_t *ent, const vec3_t eyes,
 	if( !view->model )
 		return;
 
+	silenced = CL_DemoCamSilenced( ent, view->model );
+
 	if( ent->index != last_target )
 	{
 		// just switched to him, he isn't drawing the weapon
 		last_target = ent->index;
 		last_index = index;
-		newseq = CL_DemoCamFindSequence( view->model, DEMOCAM_ANIM_IDLE );
+		newseq = CL_DemoCamFindSequence( view->model, DEMOCAM_ANIM_IDLE, silenced );
 	}
 	else if( index != last_index )
 	{
 		last_index = index;
-		newseq = CL_DemoCamFindSequence( view->model, DEMOCAM_ANIM_DRAW );
+		newseq = CL_DemoCamFindSequence( view->model, DEMOCAM_ANIM_DRAW, silenced );
 	}
 	else if( anim != DEMOCAM_ANIM_IDLE )
 	{
-		newseq = CL_DemoCamFindSequence( view->model, anim );
+		newseq = CL_DemoCamFindSequence( view->model, anim, silenced );
 	}
-	else if( anim_end && cl.time >= anim_end )
+	else if( silenced != last_silenced || ( anim_end && cl.time >= anim_end ))
 	{
-		// the shot or the reload is over
-		newseq = CL_DemoCamFindSequence( view->model, DEMOCAM_ANIM_IDLE );
+		// the shot or the reload is over, or a shot just told the silencer changed
+		newseq = CL_DemoCamFindSequence( view->model, DEMOCAM_ANIM_IDLE, silenced );
 		anim_end = 0.0f;
 	}
+
+	last_silenced = silenced;
 
 	if( newseq >= 0 )
 	{
