@@ -73,6 +73,14 @@ variantes `_unsil` se usan esas, que es como salen sin silenciador. Limites: la
 escopeta recarga un cartucho, al agacharse disparando puede salir un disparo de
 mas, y en rafagas largas (20 paquetes por segundo) alguno de menos.
 
+El silenciador de la M4A1 y la USP: ponerlo o quitarlo no se ve (esa animacion
+solo la ve quien lo hace), pero cada disparo dice si iba puesto. En CS 1.3 es el
+`bparam1` del evento `events/m4a1.sc` y el `bparam2` de `events/usp.sc`
+(comprobado con dos Xash: uno disparando sin, con y otra vez sin silenciador y el
+otro con `cl_trace_events 1`). `cl_events.c` pasa cada evento por
+`CL_DemoCamEvent`, y desde el primer disparo con silenciador el arma en mano usa
+las secuencias sin `_unsil`. El PODBot lleva la M4A1 siempre con silenciador.
+
 Cosas que ya traia Xash y aqui solo se usan: `record`/`playdemo`,
 `cl_autorecord` y `sv_novis`.
 
