@@ -85,9 +85,10 @@ Cosas que ya traia Xash y aqui solo se usan: `record`/`playdemo`,
 `cl_autorecord` y `sv_novis`.
 
 Desde el 07/10 `sv_novis` y `cl_autorecord` valen 1 por defecto en el motor: toda
-partida, de cualquier mod, se graba sola en `<mod>\` con fecha y mapa en el
-nombre y con todos los jugadores dentro (los mapas de fondo del menu no). Para
-no grabar una partida, `cl_autorecord 0` en la consola antes de cargar el mapa.
+partida multijugador, de cualquier mod, se graba sola en la carpeta del mod con
+fecha y mapa en el nombre y con todos los jugadores dentro. Las de un jugador
+(maxplayers 1) y los mapas de fondo del menu no se graban. Para no grabar una
+partida, `cl_autorecord 0` en la consola antes de cargar el mapa.
 
 `juego/cs_assault_grabando.bat` juega cs_assault con bots y graba sola la
 partida (`cl_autorecord 1`), y `juego/ver_demo.bat` reproduce la ultima. Las
