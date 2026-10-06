@@ -424,8 +424,9 @@ static void CL_CheckClientState( void )
 
 		Con_DPrintf( "client connected at %.2f sec\n", Platform_DoubleTime() - cls.timestart );
 
-		// the maps some mods run behind the menu are not a game
-		if( cl_autorecord.value && !cls.demoplayback && !cl.background )
+		// only multiplayer games: the maps some mods run behind the menu are not one,
+		// and single player would leave a demo for every level and every saved game loaded
+		if( cl_autorecord.value && !cls.demoplayback && !cl.background && cl.maxclients > 1 )
 		{
 			if( cls.demorecording )
 				CL_Stop_f();
