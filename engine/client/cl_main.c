@@ -1194,7 +1194,7 @@ static void CL_WritePacket( void )
 		if( cl_nodelta.value )
 			cl.validsequence = 0;
 
-		if( cl.validsequence && ( !cls.demorecording || !cls.demowaiting ))
+		if( cl.validsequence && ( !cls.demorecording || !cls.demowaiting ) && !CL_DemoKeyframeDue( ))
 		{
 			cl.delta_sequence = cl.validsequence;
 			MSG_BeginClientCmd( &buf, clc_delta );

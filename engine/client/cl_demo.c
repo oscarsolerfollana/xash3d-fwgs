@@ -39,6 +39,7 @@ GNU General Public License for more details.
 
 #define IDEMOHEADER		(('M'<<24)+('E'<<16)+('D'<<8)+'I') // little-endian "IDEM"
 #define DEMO_PROTOCOL	3
+#define DEMO_KEYFRAME_INTERVAL	5.0f	// seconds between full updates in a recording
 
 #define PROTOCOL_GOLDSRC_VERSION_DEMO (PROTOCOL_GOLDSRC_VERSION | (BIT( 7 ))) // should be 48, only to differentiate it from PROTOCOL_LEGACY_VERSION
 
@@ -103,6 +104,8 @@ struct
 	float		timestamp;
 	float		lasttime;
 	int		entryIndex;
+	int		msgpos;		// where the last message read starts in the file
+	float		nextkeyframe;	// recording: demo time to ask the server for a full update
 
 	// interpolation stuff
 	demoangle_t	cmds[ANGLE_BACKUP];
@@ -257,6 +260,72 @@ float CL_DemoGetLength( void )
 		length += demo.directory.entries[i].playback_time;
 
 	return length;
+}
+
+/*
+====================
+CL_DemoGetPosition
+
+where the message just read starts, to come back to it later
+====================
+*/
+void CL_DemoGetPosition( int *entry, int *offset, float *timestamp )
+{
+	*entry = demo.entryIndex;
+	*offset = demo.msgpos;
+	*timestamp = demo.timestamp;
+}
+
+/*
+====================
+CL_DemoJumpTo
+
+go back to a message with a full update, without loading the map again:
+from there on everything decodes as if the demo had started there
+====================
+*/
+qboolean CL_DemoJumpTo( int entry, int offset, float timestamp )
+{
+	int i;
+
+	if( !cls.demoplayback || !cls.demofile || entry != demo.entryIndex )
+		return false;
+
+	FS_Seek( cls.demofile, offset, SEEK_SET );
+	demo.timestamp = timestamp;
+	demo.framecount = 3; // past the first frames of a section, which reset the clock
+
+	// view angles from the future would be interpolated with
+	memset( demo.cmds, 0, sizeof( demo.cmds ));
+	demo.angle_position = 0;
+
+	// nothing received before the jump can be a delta base
+	for( i = 0; i < CL_UPDATE_BACKUP; i++ )
+		cl.frames[i].valid = false;
+	cl.validsequence = 0;
+
+	CL_ClearMovingEffects();
+	S_StopAllSounds( true );
+
+	return true;
+}
+
+/*
+====================
+CL_DemoKeyframeDue
+
+while recording, every DEMO_KEYFRAME_INTERVAL seconds the client asks for
+a full update instead of a delta. Playback can then go back to any of
+them without reading the demo from the start
+====================
+*/
+qboolean CL_DemoKeyframeDue( void )
+{
+	if( !cls.demorecording || cls.demowaiting || cls.demotime < demo.nextkeyframe )
+		return false;
+
+	demo.nextkeyframe = cls.demotime + DEMO_KEYFRAME_INTERVAL;
+	return true;
 }
 
 /*
@@ -537,6 +606,7 @@ static void CL_WriteDemoHeader( const char *name )
 
 	demo.starttime = CL_GetDemoRecordClock();	// setup the demo starttime
 	demo.realstarttime = demo.starttime;
+	demo.nextkeyframe = DEMO_KEYFRAME_INTERVAL;
 	demo.framecount = 0;
 	cls.td_startframe = host.framecount;
 	cls.td_lastframe = -1;			// get a new message this frame
@@ -1134,6 +1204,7 @@ qboolean CL_DemoReadMessage( byte *buffer, size_t *length )
 		}
 	}
 
+	demo.msgpos = curpos;
 	demo.framecount++;
 	CL_ReadDemoSequence( false );
 

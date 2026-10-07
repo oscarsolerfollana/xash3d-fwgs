@@ -3062,6 +3062,22 @@ void CL_ClearStaticEntities( void )
 
 /*
 ==============
+CL_ClearMovingEffects
+
+a demo jumping back in time keeps nothing that was flying around,
+but the map stays as it is
+==============
+*/
+void CL_ClearMovingEffects( void )
+{
+	CL_ClearDlights ();
+	CL_ClearTempEnts ();
+	CL_ClearViewBeams ();
+	CL_ClearParticles ();
+}
+
+/*
+==============
 CL_ClearEffects
 ==============
 */

@@ -940,6 +940,11 @@ void CL_DemoCtlInit( void );
 float CL_DemoGetTime( void );
 float CL_DemoGetLength( void );
 void CL_DemoResyncClock( void );
+void CL_DemoGetPosition( int *entry, int *offset, float *timestamp );
+qboolean CL_DemoJumpTo( int entry, int offset, float timestamp );
+qboolean CL_DemoKeyframeDue( void );
+void CL_DemoCtlKeyframe( void );
+void CL_ClearMovingEffects( void );
 
 static inline qboolean CL_IsThirdPerson( void )
 {

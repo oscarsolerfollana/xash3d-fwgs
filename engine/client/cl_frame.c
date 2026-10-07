@@ -824,7 +824,8 @@ int CL_ParsePacketEntities( sizebuf_t *msg, qboolean delta, connprotocol_t proto
 		uint oldpacket = MSG_ReadByte( msg );
 		oldframe = &cl.frames[oldpacket & CL_UPDATE_MASK];
 
-		if( !CL_ValidateDeltaPacket( oldpacket, oldframe ))
+		// after a jump back in a demo, frames from before it can't be used
+		if( !CL_ValidateDeltaPacket( oldpacket, oldframe ) || ( cls.demoplayback && !oldframe->valid ))
 		{
 			CL_FlushEntityPacket( msg, proto );
 			return playerbytes;
@@ -835,6 +836,10 @@ int CL_ParsePacketEntities( sizebuf_t *msg, qboolean delta, connprotocol_t proto
 		// this is a full update that we can start delta compressing from now
 		oldframe = NULL;
 		cls.demowaiting = false;	// we can start recording now
+
+		// and a demo can come back here
+		if( cls.demoplayback )
+			CL_DemoCtlKeyframe();
 	}
 
 	// mark current delta state

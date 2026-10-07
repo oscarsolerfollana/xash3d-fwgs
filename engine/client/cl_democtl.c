@@ -25,25 +25,30 @@ DEMO CONTROLS
 While a demo plays back:
 
   P               pause / resume
-  up / down       faster / slower (x0.25 .. x8)
-  right / left    10 seconds forward / back
+  right           faster: x1, x2, x4, x8 (from rewinding, back to x1)
+  left            rewind: x1, x2, x4, x8, x16
+  up              towards x1: one step up from slow motion, straight to x1
+                  from fast forward or rewinding
+  down            slower: one step down, to x0.1 (rewinding: rewinds slower)
   pgup / pgdn     a minute forward / back
   home            back to the start
   M               radar: in a corner, full screen, off
 
-Going forward reads the demo as fast as it can (like timedemo) with the
-sound off until it gets there. A demo only stores what changed from one
-moment to the next, so going back means playing it again from the start
-and going forward from there.
+A demo can only be read forwards: it stores what changed from one moment
+to the next. Every full update in it (the first message, and one every few
+seconds in demos recorded by this engine) is remembered as a keyframe:
+going back jumps to the keyframe before and reads forward from there as
+fast as it can, with the sound off. Rewinding does that every frame.
 
 The radar draws the map from overviews/<map>.txt and .bmp, the same files
 HLTV uses, with every player on it.
 ==============================================================================
 */
-#define DEMOCTL_STEP_SHORT  10.0f
-#define DEMOCTL_STEP_LONG   60.0f
-#define DEMOCTL_END_MARGIN  0.5f  // never seek right to the end, the demo would finish
-#define DEMOCTL_SEEK_BATCH  100   // demo messages read per frame while seeking
+#define DEMOCTL_STEP_LONG     60.0f
+#define DEMOCTL_END_MARGIN    0.5f  // never seek right to the end, the demo would finish
+#define DEMOCTL_SEEK_BATCH    400   // demo messages read per frame while seeking
+#define DEMOCTL_MAX_KEYFRAMES 8192
+#define DEMOCTL_MAX_REWIND_DT 0.5f  // a slow step doesn't make the next one jump further
 
 // the overview image is drawn for this aspect, like HLTV does
 #define OVERVIEW_ASPECT     ( 4.0f / 3.0f )
@@ -56,17 +61,35 @@ enum
 	RADAR_MODES
 };
 
-static const float democtl_speeds[] = { 0.25f, 0.5f, 1.0f, 2.0f, 4.0f, 8.0f };
-#define DEMOCTL_NORMAL_SPEED 2
+static const float democtl_speeds[] = { 0.1f, 0.25f, 0.5f, 1.0f, 2.0f, 4.0f, 8.0f };
+#define DEMOCTL_NORMAL_SPEED 3
+
+static const float democtl_rewind_speeds[] = { 1.0f, 2.0f, 4.0f, 8.0f, 16.0f };
+#define DEMOCTL_NOT_REWINDING -1
+
+typedef struct
+{
+	int   entry;     // demo section
+	int   offset;    // where its message starts in the file
+	float timestamp; // time inside the section
+	float time;      // time from the start of the demo
+} democtl_keyframe_t;
 
 static struct
 {
 	qboolean paused;
 	int      speed;
+	int      rewind;      // index into democtl_rewind_speeds, or DEMOCTL_NOT_REWINDING
+	float    rewind_pos;  // where the rewind is, in demo time
+	double   rewind_last; // real time of the last rewind step
 	qboolean seeking;
 	float    seek_target;
 	float    pending_target; // after starting the demo again, < 0 when none
 	int      radar;
+
+	char               kf_demo[MAX_QPATH];
+	democtl_keyframe_t keyframes[DEMOCTL_MAX_KEYFRAMES];
+	int                numkeyframes;
 
 	// overview of the current map
 	char     ov_map[64];
@@ -75,11 +98,16 @@ static struct
 	vec3_t   ov_origin;
 	qboolean ov_rotated;
 	int      ov_texture;
-} democtl = { .speed = DEMOCTL_NORMAL_SPEED, .pending_target = -1.0f };
+} democtl = { .speed = DEMOCTL_NORMAL_SPEED, .rewind = DEMOCTL_NOT_REWINDING, .pending_target = -1.0f };
 
 static qboolean CL_DemoCtlPlaying( void )
 {
 	return cls.demoplayback && !cl.background && cls.state == ca_active;
+}
+
+static qboolean CL_DemoCtlRewinding( void )
+{
+	return democtl.rewind != DEMOCTL_NOT_REWINDING;
 }
 
 qboolean CL_DemoCtlPaused( void )
@@ -87,9 +115,17 @@ qboolean CL_DemoCtlPaused( void )
 	return democtl.paused && CL_DemoCtlPlaying() && !democtl.seeking;
 }
 
+/*
+=================
+CL_DemoCtlSeeking
+
+reading ahead as fast as it can, or rewinding, which does that every
+frame: either way the sound stays off
+=================
+*/
 qboolean CL_DemoCtlSeeking( void )
 {
-	return democtl.seeking && cls.demoplayback;
+	return ( democtl.seeking || CL_DemoCtlRewinding( )) && cls.demoplayback;
 }
 
 /*
@@ -110,8 +146,8 @@ qboolean CL_DemoCtlFastForward( void )
 =================
 CL_DemoCtlRestarting
 
-starting the demo again to go back in time, the camera keeps following
-whoever it was following
+starting the demo again to go back to another section of it, the camera
+keeps following whoever it was following
 =================
 */
 qboolean CL_DemoCtlRestarting( void )
@@ -123,6 +159,47 @@ static void CL_DemoCtlSetSpeed( int speed )
 {
 	democtl.speed = bound( 0, speed, (int)ARRAYSIZE( democtl_speeds ) - 1 );
 	Cvar_SetValue( "sys_timescale", democtl_speeds[democtl.speed] );
+}
+
+/*
+=================
+CL_DemoCtlKeyframe
+
+a full update was just read: remember where it is
+=================
+*/
+void CL_DemoCtlKeyframe( void )
+{
+	democtl_keyframe_t *kf;
+	int entry, offset;
+	float timestamp;
+
+	// a different demo, its keyframes are not ours
+	if( Q_stricmp( democtl.kf_demo, cls.demoname ))
+	{
+		Q_strncpy( democtl.kf_demo, cls.demoname, sizeof( democtl.kf_demo ));
+		democtl.numkeyframes = 0;
+	}
+
+	CL_DemoGetPosition( &entry, &offset, &timestamp );
+
+	// read again after going back, it's already there
+	if( democtl.numkeyframes > 0 )
+	{
+		kf = &democtl.keyframes[democtl.numkeyframes - 1];
+
+		if( entry < kf->entry || ( entry == kf->entry && offset <= kf->offset ))
+			return;
+	}
+
+	if( democtl.numkeyframes >= DEMOCTL_MAX_KEYFRAMES )
+		return;
+
+	kf = &democtl.keyframes[democtl.numkeyframes++];
+	kf->entry = entry;
+	kf->offset = offset;
+	kf->timestamp = timestamp;
+	kf->time = CL_DemoGetTime();
 }
 
 static void CL_DemoCtlStartSeek( float target )
@@ -143,6 +220,34 @@ static void CL_DemoCtlStopSeek( void )
 	S_StopAllSounds( false );
 }
 
+/*
+=================
+CL_DemoCtlJumpBack
+
+to the last keyframe before the target, in the section being played
+=================
+*/
+static qboolean CL_DemoCtlJumpBack( float target )
+{
+	int entry, offset, i;
+	float timestamp;
+
+	if( Q_stricmp( democtl.kf_demo, cls.demoname ))
+		return false;
+
+	CL_DemoGetPosition( &entry, &offset, &timestamp );
+
+	for( i = democtl.numkeyframes - 1; i >= 0; i-- )
+	{
+		democtl_keyframe_t *kf = &democtl.keyframes[i];
+
+		if( kf->entry == entry && kf->time <= target )
+			return CL_DemoJumpTo( kf->entry, kf->offset, kf->timestamp );
+	}
+
+	return false;
+}
+
 static void CL_DemoCtlSeek( float target )
 {
 	float length = CL_DemoGetLength();
@@ -155,7 +260,13 @@ static void CL_DemoCtlSeek( float target )
 		return;
 	}
 
-	// it can only be read forwards: play it again and seek from the start
+	if( CL_DemoCtlJumpBack( target ))
+	{
+		CL_DemoCtlStartSeek( target );
+		return;
+	}
+
+	// another section of the demo: play it again and seek from the start
 	democtl.pending_target = target;
 	CL_DemoCtlStopSeek();
 	Cbuf_AddTextf( "playdemo \"%s.dem\"\n", cls.demoname );
@@ -163,9 +274,16 @@ static void CL_DemoCtlSeek( float target )
 
 static void CL_DemoCtlSeekBy( float delta )
 {
-	// several presses in a row add up while it's still on its way
-	float from = democtl.seeking ? democtl.seek_target : CL_DemoGetTime();
+	float from;
 
+	if( CL_DemoCtlRewinding( ))
+	{
+		democtl.rewind_pos = bound( 0.0f, democtl.rewind_pos + delta, CL_DemoGetLength( ));
+		return;
+	}
+
+	// several presses in a row add up while it's still on its way
+	from = democtl.seeking ? democtl.seek_target : CL_DemoGetTime();
 	CL_DemoCtlSeek( from + delta );
 }
 
@@ -181,7 +299,7 @@ qboolean CL_DemoCtlSeekMore( void )
 {
 	static int frame, count;
 
-	if( !CL_DemoCtlSeeking() || CL_DemoGetTime() >= democtl.seek_target )
+	if( !democtl.seeking || !cls.demoplayback || CL_DemoGetTime() >= democtl.seek_target )
 		return false;
 
 	if( frame != host.framecount )
@@ -191,6 +309,63 @@ qboolean CL_DemoCtlSeekMore( void )
 	}
 
 	return ++count < DEMOCTL_SEEK_BATCH;
+}
+
+static void CL_DemoCtlForward( void )
+{
+	democtl.rewind = DEMOCTL_NOT_REWINDING;
+}
+
+static void CL_DemoCtlStartRewind( void )
+{
+	democtl.rewind = 0;
+	democtl.rewind_pos = democtl.seeking ? democtl.seek_target : CL_DemoGetTime();
+	democtl.rewind_last = Platform_DoubleTime();
+	CL_DemoCtlSetSpeed( DEMOCTL_NORMAL_SPEED );
+}
+
+// right: faster, and out of a rewind back to x1
+static void CL_DemoCtlFaster( void )
+{
+	if( CL_DemoCtlRewinding( ))
+	{
+		CL_DemoCtlForward();
+		CL_DemoCtlSetSpeed( DEMOCTL_NORMAL_SPEED );
+	}
+	else CL_DemoCtlSetSpeed( democtl.speed + 1 );
+}
+
+// left: rewind, faster each time
+static void CL_DemoCtlRewind( void )
+{
+	if( !CL_DemoCtlRewinding( ))
+		CL_DemoCtlStartRewind();
+	else democtl.rewind = Q_min( democtl.rewind + 1, (int)ARRAYSIZE( democtl_rewind_speeds ) - 1 );
+}
+
+// up: towards x1
+static void CL_DemoCtlTowardsNormal( void )
+{
+	if( CL_DemoCtlRewinding( ) || democtl.speed > DEMOCTL_NORMAL_SPEED )
+	{
+		CL_DemoCtlForward();
+		CL_DemoCtlSetSpeed( DEMOCTL_NORMAL_SPEED );
+	}
+	else CL_DemoCtlSetSpeed( democtl.speed + 1 );
+}
+
+// down: slower
+static void CL_DemoCtlSlower( void )
+{
+	if( CL_DemoCtlRewinding( ))
+		democtl.rewind = Q_max( democtl.rewind - 1, 0 );
+	else CL_DemoCtlSetSpeed( democtl.speed - 1 );
+}
+
+static void CL_DemoCtlTogglePause( void )
+{
+	democtl.paused = !democtl.paused;
+	democtl.rewind_last = Platform_DoubleTime();
 }
 
 /*
@@ -229,19 +404,19 @@ qboolean CL_DemoCtlKey( int key, qboolean down )
 	{
 	case 'p':
 	case K_PAUSE:
-		democtl.paused = !democtl.paused;
-		break;
-	case K_UPARROW:
-		CL_DemoCtlSetSpeed( democtl.speed + 1 );
-		break;
-	case K_DOWNARROW:
-		CL_DemoCtlSetSpeed( democtl.speed - 1 );
+		CL_DemoCtlTogglePause();
 		break;
 	case K_RIGHTARROW:
-		CL_DemoCtlSeekBy( DEMOCTL_STEP_SHORT );
+		CL_DemoCtlFaster();
 		break;
 	case K_LEFTARROW:
-		CL_DemoCtlSeekBy( -DEMOCTL_STEP_SHORT );
+		CL_DemoCtlRewind();
+		break;
+	case K_UPARROW:
+		CL_DemoCtlTowardsNormal();
+		break;
+	case K_DOWNARROW:
+		CL_DemoCtlSlower();
 		break;
 	case K_PGUP:
 		CL_DemoCtlSeekBy( DEMOCTL_STEP_LONG );
@@ -250,7 +425,7 @@ qboolean CL_DemoCtlKey( int key, qboolean down )
 		CL_DemoCtlSeekBy( -DEMOCTL_STEP_LONG );
 		break;
 	case K_HOME:
-		CL_DemoCtlSeek( 0.0f );
+		CL_DemoCtlSeekBy( -CL_DemoGetLength( ));
 		break;
 	case 'm':
 		democtl.radar = ( democtl.radar + 1 ) % RADAR_MODES;
@@ -263,7 +438,7 @@ qboolean CL_DemoCtlKey( int key, qboolean down )
 static void CL_DemoCtlPause_f( void )
 {
 	if( CL_DemoCtlPlaying( ))
-		democtl.paused = !democtl.paused;
+		CL_DemoCtlTogglePause();
 }
 
 static void CL_DemoCtlSeek_f( void )
@@ -275,7 +450,10 @@ static void CL_DemoCtlSeek_f( void )
 	}
 
 	if( CL_DemoCtlPlaying( ))
+	{
+		CL_DemoCtlForward();
 		CL_DemoCtlSeek( Q_atof( Cmd_Argv( 1 )));
+	}
 }
 
 static void CL_DemoCtlSkip_f( void )
@@ -293,7 +471,26 @@ static void CL_DemoCtlSkip_f( void )
 static void CL_DemoCtlSpeed_f( void )
 {
 	float wanted = Cmd_Argc() == 2 ? Q_atof( Cmd_Argv( 1 )) : 1.0f;
-	int i, best = DEMOCTL_NORMAL_SPEED;
+	int i, best = 0;
+
+	if( !CL_DemoCtlPlaying( ))
+		return;
+
+	// negative rewinds
+	if( wanted < 0.0f )
+	{
+		if( !CL_DemoCtlRewinding( ))
+			CL_DemoCtlStartRewind();
+
+		for( i = 0; i < ARRAYSIZE( democtl_rewind_speeds ); i++ )
+		{
+			if( fabs( democtl_rewind_speeds[i] + wanted ) < fabs( democtl_rewind_speeds[best] + wanted ))
+				best = i;
+		}
+
+		democtl.rewind = best;
+		return;
+	}
 
 	// the closest of the speeds on offer
 	for( i = 0; i < ARRAYSIZE( democtl_speeds ); i++ )
@@ -302,8 +499,8 @@ static void CL_DemoCtlSpeed_f( void )
 			best = i;
 	}
 
-	if( CL_DemoCtlPlaying( ))
-		CL_DemoCtlSetSpeed( best );
+	CL_DemoCtlForward();
+	CL_DemoCtlSetSpeed( best );
 }
 
 static void CL_DemoCtlRadar_f( void )
@@ -318,7 +515,7 @@ void CL_DemoCtlInit( void )
 	Cmd_AddCommand( "democtl_pause", CL_DemoCtlPause_f, "demo playback: pause or resume" );
 	Cmd_AddCommand( "democtl_seek", CL_DemoCtlSeek_f, "demo playback: go to a moment, in seconds from the start" );
 	Cmd_AddCommand( "democtl_skip", CL_DemoCtlSkip_f, "demo playback: go forward or back this many seconds" );
-	Cmd_AddCommand( "democtl_speed", CL_DemoCtlSpeed_f, "demo playback: speed, from 0.25 to 8" );
+	Cmd_AddCommand( "democtl_speed", CL_DemoCtlSpeed_f, "demo playback: speed, 0.1 to 8, or -1 to -16 to rewind" );
 	Cmd_AddCommand( "democtl_radar", CL_DemoCtlRadar_f, "demo playback: radar off (0), in a corner (1) or full screen (2)" );
 }
 
@@ -326,8 +523,9 @@ void CL_DemoCtlInit( void )
 =================
 CL_DemoCtlFrame
 
-called every frame: finishes a seek once it got there, starts the one
-left pending by a restart, and puts everything back when no demo plays
+called every frame before the demo is read: finishes a seek once it got
+there, takes a rewind one step back, starts the seek left pending by a
+restart, and puts everything back when no demo plays
 =================
 */
 void CL_DemoCtlFrame( void )
@@ -344,6 +542,7 @@ void CL_DemoCtlFrame( void )
 
 		democtl.paused = false;
 		democtl.seeking = false;
+		democtl.rewind = DEMOCTL_NOT_REWINDING;
 		democtl.radar = RADAR_OFF;
 		return;
 	}
@@ -364,6 +563,25 @@ void CL_DemoCtlFrame( void )
 
 	if( democtl.seeking && CL_DemoGetTime() >= democtl.seek_target )
 		CL_DemoCtlStopSeek();
+
+	if( CL_DemoCtlRewinding() && !democtl.paused && !democtl.seeking )
+	{
+		double now = Platform_DoubleTime();
+		float dt = bound( 0.0f, now - democtl.rewind_last, DEMOCTL_MAX_REWIND_DT );
+
+		democtl.rewind_last = now;
+		democtl.rewind_pos -= democtl_rewind_speeds[democtl.rewind] * dt;
+
+		// at the start it stops there, paused
+		if( democtl.rewind_pos <= 0.0f )
+		{
+			democtl.rewind_pos = 0.0f;
+			CL_DemoCtlForward();
+			democtl.paused = true;
+		}
+
+		CL_DemoCtlSeek( democtl.rewind_pos );
+	}
 }
 
 /*
@@ -666,29 +884,37 @@ void CL_DemoCtlDraw( void )
 	if( democtl.radar != RADAR_OFF )
 		CL_DemoCtlDrawRadar();
 
-	time = democtl.seeking ? democtl.seek_target : CL_DemoGetTime();
 	length = CL_DemoGetLength();
+
+	if( CL_DemoCtlRewinding( ))
+		time = democtl.rewind_pos;
+	else if( democtl.seeking )
+		time = democtl.seek_target;
+	else time = CL_DemoGetTime();
+
 	frac = length > 0.0f ? bound( 0.0f, CL_DemoGetTime() / length, 1.0f ) : 0.0f;
 
 	// the bar: what was played, and where a seek is heading
 	CL_DemoCtlFill( 0, refState.height - 6, refState.width, 6, (rgba_t){ 0, 0, 0, 160 });
 	CL_DemoCtlFill( 0, refState.height - 6, refState.width * frac, 6, (rgba_t){ 255, 180, 30, 220 });
 
-	if( democtl.seeking && length > 0.0f )
+	if( democtl.seeking && !CL_DemoCtlRewinding() && length > 0.0f )
 		CL_DemoCtlFill( refState.width * bound( 0.0f, democtl.seek_target / length, 1.0f ) - 1, refState.height - 10, 3, 10, (rgba_t){ 255, 255, 255, 255 });
 
 	now = (int)time;
 	total = (int)length;
 
-	if( democtl_speeds[democtl.speed] < 1.0f )
+	if( CL_DemoCtlRewinding( ))
+		Q_snprintf( speed, sizeof( speed ), "<< x%d", (int)democtl_rewind_speeds[democtl.rewind] );
+	else if( democtl_speeds[democtl.speed] < 1.0f )
 		Q_snprintf( speed, sizeof( speed ), "x%.2g", democtl_speeds[democtl.speed] );
 	else Q_snprintf( speed, sizeof( speed ), "x%d", (int)democtl_speeds[democtl.speed] );
 
 	line.index = 2;
 	Con_NXPrintf( &line, "%s %02d:%02d / %02d:%02d  %s",
-		democtl.seeking ? "Avanzando..." : CL_DemoCtlPaused() ? "PAUSA" : ">",
+		CL_DemoCtlPaused() ? "PAUSA" : democtl.seeking && !CL_DemoCtlRewinding() ? "Avanzando..." : ">",
 		now / 60, now % 60, total / 60, total % 60, speed );
 
 	line.index = 3;
-	Con_NXPrintf( &line, "P: pausa - flechas: tiempo y velocidad - RePag/AvPag: 1 min - M: radar" );
+	Con_NXPrintf( &line, "P: pausa - der: rapido - izq: rebobinar - arriba: x1 - abajo: lento - RePag/AvPag: 1 min - M: radar" );
 }
