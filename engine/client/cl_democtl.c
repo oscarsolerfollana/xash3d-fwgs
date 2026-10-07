@@ -144,18 +144,6 @@ qboolean CL_DemoCtlSeeking( void )
 
 /*
 =================
-CL_DemoCtlTimeScale
-
-how fast a demo plays, 1 when none does
-=================
-*/
-float CL_DemoCtlTimeScale( void )
-{
-	return cls.demoplayback ? democtl_speeds[democtl.speed] : 1.0f;
-}
-
-/*
-=================
 CL_DemoCtlFastForward
 
 the demo has a usercmd for every frame of the client that recorded it and
@@ -634,57 +622,6 @@ qboolean CL_DemoCtlRewindLink( void )
 	}
 
 	return true;
-}
-
-/*
-=================
-CL_DemoCtlSmoothView
-
-a demo moves the recorded view in steps, one per update it got: at x1
-it can't be seen, in slow motion it can. Draw it the way the engine draws
-other players: cl_interp behind the client clock, between the two packets
-around that moment, from the position each one carries
-=================
-*/
-#define DEMOCTL_VIEW_TELEPORT 128.0f
-
-void CL_DemoCtlSmoothView( void )
-{
-	double target = cl.time - cl_interp.value;
-	const frame_t *newer = NULL, *older = NULL;
-	float frac;
-	int i;
-
-	if( !cls.demoplayback || cl.background || CL_DemoCtlRewinding() || democtl.seeking )
-		return;
-
-	for( i = 0; i < CL_UPDATE_MASK; i++ )
-	{
-		const frame_t *f = &cl.frames[( cl.parsecount - i ) & CL_UPDATE_MASK];
-
-		if( !f->valid )
-			continue;
-
-		if( f->time > target )
-		{
-			newer = f;
-			continue;
-		}
-
-		older = f;
-		break;
-	}
-
-	if( !newer || !older || newer->time <= older->time )
-		return;
-
-	// a teleport goes straight there
-	if( VectorDistance( older->clientdata.origin, newer->clientdata.origin ) > DEMOCTL_VIEW_TELEPORT )
-		return;
-
-	frac = bound( 0.0f, ( target - older->time ) / ( newer->time - older->time ), 1.0f );
-	VectorLerp( older->clientdata.origin, frac, newer->clientdata.origin, cl.simorg );
-	VectorLerp( older->clientdata.view_ofs, frac, newer->clientdata.view_ofs, cl.viewheight );
 }
 
 /*
@@ -1430,6 +1367,410 @@ static void CL_DemoCtlDrawRadar( void )
 }
 
 /*
+==============================================================================
+SMOOTH MOVEMENT
+
+Between two packets the engine moves things in a straight line at a steady
+speed, and the speed changes at once when the next packet comes. At x1 it
+can't be seen; in slow motion every packet shows as a little jolt. A demo
+has packets after the moment drawn, so it can draw a curve through the
+packets around it instead (cubic Hermite, with the tangents taken from the
+packets on either side), and the speed changes gradually.
+==============================================================================
+*/
+#define DEMOCTL_CURVE_TELEPORT 128.0f // further than this between two packets is a teleport
+#define DEMOCTL_CURVE_PACKETS  64     // packets looked back through
+
+typedef qboolean (*democtl_getpos_t)( const frame_t *frame, int sequence, int arg, vec3_t out );
+
+static qboolean CL_DemoCtlViewPos( const frame_t *frame, int sequence, int arg, vec3_t out )
+{
+	VectorCopy( frame->clientdata.origin, out );
+	return true;
+}
+
+static qboolean CL_DemoCtlPlayerPos( const frame_t *frame, int sequence, int arg, vec3_t out )
+{
+	const entity_state_t *state = &frame->playerstate[arg - 1];
+
+	// not in that packet
+	if( state->messagenum != sequence || !state->modelindex )
+		return false;
+
+	VectorCopy( state->origin, out );
+	return true;
+}
+
+/*
+=================
+CL_DemoCtlCurve
+
+where something was at a moment, along a curve through the packets
+around it. False when it can't be worked out, or there was a teleport
+=================
+*/
+static qboolean CL_DemoCtlCurve( democtl_getpos_t getpos, int arg, double target, vec3_t out )
+{
+	double time[4];
+	vec3_t pos[4];
+	int i, older = -1;
+	vec3_t list_pos[DEMOCTL_CURVE_PACKETS];
+	double list_time[DEMOCTL_CURVE_PACKETS];
+	int count = 0;
+	float dt, s, s2, s3;
+
+	// valid packets, newest first
+	for( i = 0; i < CL_UPDATE_MASK && count < DEMOCTL_CURVE_PACKETS; i++ )
+	{
+		int sequence = cl.parsecount - i;
+		const frame_t *frame = &cl.frames[sequence & CL_UPDATE_MASK];
+
+		if( !frame->valid )
+			continue;
+
+		if( count > 0 && frame->time >= list_time[count - 1] )
+			continue;
+
+		if( !getpos( frame, sequence, arg, list_pos[count] ))
+			continue;
+
+		list_time[count] = frame->time;
+
+		if( older < 0 && frame->time <= target )
+			older = count;
+
+		count++;
+
+		// one more past the older one is all the curve needs
+		if( older >= 0 && count > older + 1 )
+			break;
+	}
+
+	// the packets right around the moment: older at or before it, newer after
+	if( older <= 0 )
+		return false;
+
+	// p0 before p1 (older), p2 (newer), p3 after p2
+	time[1] = list_time[older];
+	VectorCopy( list_pos[older], pos[1] );
+	time[2] = list_time[older - 1];
+	VectorCopy( list_pos[older - 1], pos[2] );
+
+	if( VectorDistance( pos[1], pos[2] ) > DEMOCTL_CURVE_TELEPORT || time[2] <= time[1] )
+		return false;
+
+	if( older + 1 < count && VectorDistance( list_pos[older + 1], pos[1] ) <= DEMOCTL_CURVE_TELEPORT )
+	{
+		time[0] = list_time[older + 1];
+		VectorCopy( list_pos[older + 1], pos[0] );
+	}
+	else
+	{
+		// no packet before: carry straight on
+		time[0] = time[1] - ( time[2] - time[1] );
+		VectorMA( pos[1], -1.0f, pos[2], pos[0] );
+		VectorAdd( pos[0], pos[1], pos[0] );
+	}
+
+	if( older - 2 >= 0 && VectorDistance( list_pos[older - 2], pos[2] ) <= DEMOCTL_CURVE_TELEPORT )
+	{
+		time[3] = list_time[older - 2];
+		VectorCopy( list_pos[older - 2], pos[3] );
+	}
+	else
+	{
+		time[3] = time[2] + ( time[2] - time[1] );
+		VectorSubtract( pos[2], pos[1], pos[3] );
+		VectorAdd( pos[3], pos[2], pos[3] );
+	}
+
+	dt = time[2] - time[1];
+	s = bound( 0.0f, ( target - time[1] ) / dt, 1.0f );
+	s2 = s * s;
+	s3 = s2 * s;
+
+	for( i = 0; i < 3; i++ )
+	{
+		// tangents scaled to this stretch of time
+		float m1 = ( pos[2][i] - pos[0][i] ) * dt / ( time[2] - time[0] );
+		float m2 = ( pos[3][i] - pos[1][i] ) * dt / ( time[3] - time[1] );
+
+		out[i] = ( 2 * s3 - 3 * s2 + 1 ) * pos[1][i] + ( s3 - 2 * s2 + s ) * m1
+			+ ( -2 * s3 + 3 * s2 ) * pos[2][i] + ( s3 - s2 ) * m2;
+	}
+
+	return true;
+}
+
+/*
+=================
+CL_DemoCtlSmoothPos
+
+some packets come with a time that doesn't quite match where things are,
+and even a curve through them changes speed there. The average of the
+curve over DEMOCTL_SMOOTH_WINDOW around the moment evens that out
+=================
+*/
+#define DEMOCTL_SMOOTH_WINDOW  0.06
+#define DEMOCTL_SMOOTH_SAMPLES 5
+
+static qboolean CL_DemoCtlSmoothPos( democtl_getpos_t getpos, int arg, double target, vec3_t out )
+{
+	vec3_t sum = { 0 }, pos;
+	int i;
+
+	for( i = 0; i < DEMOCTL_SMOOTH_SAMPLES; i++ )
+	{
+		double t = target + DEMOCTL_SMOOTH_WINDOW * ((double)i / ( DEMOCTL_SMOOTH_SAMPLES - 1 ) - 0.5 );
+
+		if( !CL_DemoCtlCurve( getpos, arg, t, pos ))
+			return false;
+
+		VectorAdd( sum, pos, sum );
+	}
+
+	VectorScale( sum, 1.0f / DEMOCTL_SMOOTH_SAMPLES, out );
+	return true;
+}
+
+static qboolean CL_DemoCtlCurveActive( void )
+{
+	return cls.demoplayback && !cl.background && !CL_DemoCtlRewinding() && !democtl.seeking && cl_interp.value > 0.0f;
+}
+
+/*
+=================
+CL_DemoCtlSmoothPlayer
+
+the engine just placed a player for drawing: in a demo, put him on the curve
+=================
+*/
+void CL_DemoCtlSmoothPlayer( int index, vec3_t origin )
+{
+	vec3_t curve;
+
+	if( !CL_DemoCtlCurveActive( ) || index < 1 || index > cl.maxclients )
+		return;
+
+	if( CL_DemoCtlSmoothPos( CL_DemoCtlPlayerPos, index, cl.time - cl_interp.value, curve ) || CL_DemoCtlCurve( CL_DemoCtlPlayerPos, index, cl.time - cl_interp.value, curve ))
+		VectorCopy( curve, origin );
+}
+
+/*
+=================
+CL_DemoCtlSmoothView
+
+the recorded view comes out of prediction, which in a demo moves in
+bursts, one per packet. Put it where other players are drawn, cl_interp
+behind the client clock, on the curve through the packets around it
+=================
+*/
+void CL_DemoCtlSmoothView( void )
+{
+	double target = cl.time - cl_interp.value;
+	const frame_t *newer = NULL, *older = NULL;
+	vec3_t curve;
+	float frac;
+	int i;
+
+	if( !CL_DemoCtlCurveActive( ))
+		return;
+
+	// right at the newest packet there may be nothing to average with: the curve alone
+	if( !CL_DemoCtlSmoothPos( CL_DemoCtlViewPos, 0, target, curve ) && !CL_DemoCtlCurve( CL_DemoCtlViewPos, 0, target, curve ))
+		return;
+
+	VectorCopy( curve, cl.simorg );
+
+	// the eye height only changes when crouching, a straight line is fine
+	for( i = 0; i < CL_UPDATE_MASK; i++ )
+	{
+		const frame_t *f = &cl.frames[( cl.parsecount - i ) & CL_UPDATE_MASK];
+
+		if( !f->valid )
+			continue;
+
+		if( f->time > target )
+		{
+			newer = f;
+			continue;
+		}
+
+		older = f;
+		break;
+	}
+
+	if( newer && older && newer->time > older->time )
+	{
+		frac = bound( 0.0f, ( target - older->time ) / ( newer->time - older->time ), 1.0f );
+		VectorLerp( older->clientdata.view_ofs, frac, newer->clientdata.view_ofs, cl.viewheight );
+	}
+}
+
+/*
+==============================================================================
+KILLS
+
+Every DeathMsg of the demo is kept with its moment, and the last few are
+listed in the top right corner, the way CS does it. Being kept with their
+time they also show while rewinding or seeking, and with the radar full
+screen. CS's own list doesn't get the message, it would show them twice.
+==============================================================================
+*/
+#define DEMOCTL_MAX_KILLS  1024
+#define DEMOCTL_KILL_SHOW  6.0f  // seconds a kill stays listed
+#define DEMOCTL_KILL_LINES 5
+
+typedef struct
+{
+	float time;
+	byte  killer;
+	byte  victim;
+	byte  headshot;
+	char  weapon[32];
+} democtl_kill_t;
+
+static struct
+{
+	char           demo[MAX_QPATH];
+	democtl_kill_t kills[DEMOCTL_MAX_KILLS];
+	int            numkills;
+} dk;
+
+/*
+=================
+CL_DemoCtlDeathMsg
+
+CS sends killer, victim, headshot (one byte each) and the weapon name.
+True when the demo keeps it and client.dll mustn't get it
+=================
+*/
+qboolean CL_DemoCtlDeathMsg( const byte *buf, int size )
+{
+	democtl_kill_t kill = { 0 };
+	int i, len;
+
+	if( !cls.demoplayback || cl.background || size < 4 )
+		return false;
+
+	if( Q_stricmp( dk.demo, cls.demoname ))
+	{
+		Q_strncpy( dk.demo, cls.demoname, sizeof( dk.demo ));
+		dk.numkills = 0;
+	}
+
+	kill.time = CL_DemoGetTime();
+	kill.killer = buf[0];
+	kill.victim = buf[1];
+	kill.headshot = buf[2];
+
+	len = Q_min( size - 3, (int)sizeof( kill.weapon ) - 1 );
+	memcpy( kill.weapon, buf + 3, len );
+	kill.weapon[len] = 0;
+
+	// read again after going back, it's already there
+	for( i = dk.numkills - 1; i >= 0; i-- )
+	{
+		const democtl_kill_t *k = &dk.kills[i];
+
+		if( fabs( k->time - kill.time ) < 0.01f && k->killer == kill.killer && k->victim == kill.victim )
+			return true;
+
+		if( k->time < kill.time - 1.0f )
+			break;
+	}
+
+	if( dk.numkills >= DEMOCTL_MAX_KILLS )
+		return true;
+
+	// in time order
+	for( i = dk.numkills; i > 0 && dk.kills[i - 1].time > kill.time; i-- )
+		dk.kills[i] = dk.kills[i - 1];
+
+	dk.kills[i] = kill;
+	dk.numkills++;
+
+	return true;
+}
+
+static const char *CL_DemoCtlPlayerName( int index )
+{
+	if( index < 1 || index > cl.maxclients || COM_StringEmpty( cl.players[index - 1].name ))
+		return va( "jugador %i", index );
+
+	return cl.players[index - 1].name;
+}
+
+static void CL_DemoCtlDrawKills( float now )
+{
+	const democtl_kill_t *show[DEMOCTL_KILL_LINES];
+	int i, numshow = 0, charheight, y;
+	rgba_t grey = { 200, 200, 200, 255 };
+
+	if( Q_stricmp( dk.demo, cls.demoname ))
+		return;
+
+	// the newest ones up to now
+	for( i = dk.numkills - 1; i >= 0 && numshow < DEMOCTL_KILL_LINES; i-- )
+	{
+		const democtl_kill_t *k = &dk.kills[i];
+
+		if( k->time > now )
+			continue;
+
+		if( k->time < now - DEMOCTL_KILL_SHOW )
+			break;
+
+		show[numshow++] = k;
+	}
+
+	Con_DrawStringLen( "A", NULL, &charheight );
+
+	// below the status lines of the demo controls, oldest first
+	y = charheight * 6;
+
+	for( i = numshow - 1; i >= 0; i--, y += charheight + 2 )
+	{
+		const democtl_kill_t *k = show[i];
+		const char *victim = CL_DemoCtlPlayerName( k->victim );
+		char weapon[48];
+		rgba_t kcolor, vcolor;
+		int w, x;
+
+		CL_DemoCtlTeamColor( k->victim, vcolor );
+
+		// killed by the world, or by himself
+		if( k->killer == 0 || k->killer == k->victim || !Q_stricmp( k->weapon, "world" ))
+		{
+			const char *text = va( "%s ha muerto", victim );
+
+			Con_DrawStringLen( text, &w, NULL );
+			x = refState.width - w - 8;
+			CL_DemoCtlFill( x - 4, y - 1, w + 8, charheight + 2, (rgba_t){ 0, 0, 0, 120 });
+			Con_DrawString( x, y, text, vcolor );
+			continue;
+		}
+
+		const char *killer = CL_DemoCtlPlayerName( k->killer );
+		int wk, ww, wv;
+
+		CL_DemoCtlTeamColor( k->killer, kcolor );
+		Q_snprintf( weapon, sizeof( weapon ), k->headshot ? "  [%s, cabeza]  " : "  [%s]  ", k->weapon );
+
+		Con_DrawStringLen( killer, &wk, NULL );
+		Con_DrawStringLen( weapon, &ww, NULL );
+		Con_DrawStringLen( victim, &wv, NULL );
+		w = wk + ww + wv;
+		x = refState.width - w - 8;
+
+		CL_DemoCtlFill( x - 4, y - 1, w + 8, charheight + 2, (rgba_t){ 0, 0, 0, 120 });
+		Con_DrawString( x, y, killer, kcolor );
+		Con_DrawString( x + wk, y, weapon, grey );
+		Con_DrawString( x + wk + ww, y, victim, vcolor );
+	}
+}
+
+/*
 =================
 CL_DemoCtlDraw
 
@@ -1482,4 +1823,5 @@ void CL_DemoCtlDraw( void )
 
 	line.index = 3;
 	Con_NXPrintf( &line, "P: pausa - der: rapido - izq: rebobinar - arriba: x1 - abajo: lento - RePag/AvPag: 1 min - M: radar" );
+	CL_DemoCtlDrawKills( time );
 }

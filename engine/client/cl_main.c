@@ -4018,10 +4018,28 @@ slowly adjuct client clock
 to smooth lag effect
 ==================
 */
+#define DEMO_CLOCK_STEER_TIME 0.5 // a drift is made up over about this much demo time
+
 static void CL_AdjustClock( void )
 {
 	if( cl.timedelta == 0.0f || !cl_fixtimerate.value )
 		return;
+
+	// a demo steers the clock gently instead: the nudges in bursts below make it
+	// go faster and slower, which shows as jolts in slow motion. A fraction of
+	// the drift every frame, in proportion to the frame time, never changes the
+	// pace all at once
+	if( cls.demoplayback )
+	{
+		double adjust = -cl.timedelta * bound( 0.0, host.frametime / DEMO_CLOCK_STEER_TIME, 1.0 );
+
+		cl.timedelta += adjust;
+		cl.time += adjust;
+
+		if( cl.oldtime > cl.time )
+			cl.oldtime = cl.time;
+		return;
+	}
 
 	if( cl_fixtimerate.value < 0.0f )
 		Cvar_SetValue( "cl_fixtimerate", 7.5f );
@@ -4034,8 +4052,7 @@ static void CL_AdjustClock( void )
 		msec = ( cl.timedelta * 1000.0 );
 		sign = ( msec < 0 ) ? 1.0 : -1.0;
 
-		// a demo in slow motion moves the clock that much slower, so must the correction
-		msec = Q_min( cl_fixtimerate.value * CL_DemoCtlTimeScale(), fabs( msec ));
+		msec = Q_min( cl_fixtimerate.value, fabs( msec ));
 		adjust = sign * ( msec / 1000.0 );
 
 		if( fabs( adjust ) < fabs( cl.timedelta ))

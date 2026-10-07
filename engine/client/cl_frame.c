@@ -1081,6 +1081,9 @@ static void CL_LinkPlayers( frame_t *frame )
 
 			// interpolate non-local clients
 			CL_ComputePlayerOrigin( ent );
+
+			// a demo curves it between packets
+			CL_DemoCtlSmoothPlayer( i + 1, ent->origin );
 		}
 
 		VectorCopy( ent->origin, ent->attachment[0] );

@@ -2298,7 +2298,10 @@ void CL_ParseUserMessage( sizebuf_t *msg, int svc_num, connprotocol_t proto )
 			clgame.msg[i].name, iSize, clgame.msg[i].number );
 	}
 
-	if( clgame.msg[i].func && !CL_DemoCtlSkipUserMsg( clgame.msg[i].name ))
+	// a demo lists the kills itself, at any speed and while rewinding
+	qboolean demokill = !Q_strcmp( clgame.msg[i].name, "DeathMsg" ) && CL_DemoCtlDeathMsg( pbuf, iSize );
+
+	if( clgame.msg[i].func && !demokill && !CL_DemoCtlSkipUserMsg( clgame.msg[i].name ))
 	{
 		clgame.msg[i].func( clgame.msg[i].name, iSize, pbuf );
 
