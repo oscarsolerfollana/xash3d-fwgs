@@ -511,7 +511,8 @@ static float CL_LerpPoint( void )
 {
 	double f = cl_serverframetime();
 
-	if( f == 0.0 || cls.timedemo )
+	// a demo doesn't jump the clock to the last packet: in slow motion that's a jerk
+	if( cls.timedemo || ( f == 0.0 && !cls.demoplayback ))
 	{
 		double fgap = cl_clientframetime();
 		cl.time = cl.mtime[0];
@@ -4032,7 +4033,9 @@ static void CL_AdjustClock( void )
 
 		msec = ( cl.timedelta * 1000.0 );
 		sign = ( msec < 0 ) ? 1.0 : -1.0;
-		msec = Q_min( cl_fixtimerate.value, fabs( msec ));
+
+		// a demo in slow motion moves the clock that much slower, so must the correction
+		msec = Q_min( cl_fixtimerate.value * CL_DemoCtlTimeScale(), fabs( msec ));
 		adjust = sign * ( msec / 1000.0 );
 
 		if( fabs( adjust ) < fabs( cl.timedelta ))

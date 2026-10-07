@@ -1322,6 +1322,9 @@ void CL_EmitEntities( void )
 
 	ref.dllFuncs.R_ClearScene ();
 
+	// a demo glides the recorded view between its steps
+	CL_DemoCtlSmoothView();
+
 	// a demo being rewound draws what it kept in memory instead
 	if( !CL_DemoCtlRewindLink( ))
 	{

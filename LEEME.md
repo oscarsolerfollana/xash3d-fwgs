@@ -146,6 +146,20 @@ una actualizacion completa, y al grabar el cliente pide una cada 5 s
 grabadas desde el 07/10 cada salto relee como mucho 5 s. Solo si el punto queda
 en otra seccion de la demo (cambio de mapa) se vuelve a cargar con `playdemo`.
 
+**Camara lenta.** A x0.5, x0.25 y x0.1 los jugadores iban suaves pero la camara
+a golpes, por dos cosas del motor que a x1 no se notan:
+- `CL_AdjustClock` corrige el reloj del cliente hasta `cl_fixtimerate` (7,5 ms)
+  por fotograma, sin contar la velocidad; a x0.1 el reloj solo avanza ~1,7 ms
+  por fotograma y la correccion mandaba. Ahora en demos se escala con la
+  velocidad (`CL_DemoCtlTimeScale`), y `CL_LerpPoint` ya no planta el reloj en el
+  ultimo paquete cuando dos mensajes traen la misma hora.
+- La vista grabada sale de la prediccion, que en una demo avanza a rafagas, una
+  por paquete. `CL_DemoCtlSmoothView` la pone como el motor pone a los demas
+  jugadores: `cl_interp` por detras del reloj, entre los dos paquetes de alrededor,
+  con la posicion que trae cada uno (sin interpolar si salta mas de 128 unidades).
+Medido a x0.1 corriendo: la camara avanza 0,2-0,8 unidades en cada fotograma,
+ninguno quieto (antes, rafagas de 4-12 y decenas de fotogramas quieta).
+
 El radar usa `overviews/<mapa>.txt` y `.bmp`, los de HLTV. El `.bmp` pinta de
 verde puro lo que queda fuera del mapa; al cargarlo se cambia por negro. Sin
 overview, el radar abarca todo el mapa sobre fondo oscuro. La colocacion es la de

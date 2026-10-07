@@ -144,6 +144,18 @@ qboolean CL_DemoCtlSeeking( void )
 
 /*
 =================
+CL_DemoCtlTimeScale
+
+how fast a demo plays, 1 when none does
+=================
+*/
+float CL_DemoCtlTimeScale( void )
+{
+	return cls.demoplayback ? democtl_speeds[democtl.speed] : 1.0f;
+}
+
+/*
+=================
 CL_DemoCtlFastForward
 
 the demo has a usercmd for every frame of the client that recorded it and
@@ -622,6 +634,57 @@ qboolean CL_DemoCtlRewindLink( void )
 	}
 
 	return true;
+}
+
+/*
+=================
+CL_DemoCtlSmoothView
+
+a demo moves the recorded view in steps, one per update it got: at x1
+it can't be seen, in slow motion it can. Draw it the way the engine draws
+other players: cl_interp behind the client clock, between the two packets
+around that moment, from the position each one carries
+=================
+*/
+#define DEMOCTL_VIEW_TELEPORT 128.0f
+
+void CL_DemoCtlSmoothView( void )
+{
+	double target = cl.time - cl_interp.value;
+	const frame_t *newer = NULL, *older = NULL;
+	float frac;
+	int i;
+
+	if( !cls.demoplayback || cl.background || CL_DemoCtlRewinding() || democtl.seeking )
+		return;
+
+	for( i = 0; i < CL_UPDATE_MASK; i++ )
+	{
+		const frame_t *f = &cl.frames[( cl.parsecount - i ) & CL_UPDATE_MASK];
+
+		if( !f->valid )
+			continue;
+
+		if( f->time > target )
+		{
+			newer = f;
+			continue;
+		}
+
+		older = f;
+		break;
+	}
+
+	if( !newer || !older || newer->time <= older->time )
+		return;
+
+	// a teleport goes straight there
+	if( VectorDistance( older->clientdata.origin, newer->clientdata.origin ) > DEMOCTL_VIEW_TELEPORT )
+		return;
+
+	frac = bound( 0.0f, ( target - older->time ) / ( newer->time - older->time ), 1.0f );
+	VectorLerp( older->clientdata.origin, frac, newer->clientdata.origin, cl.simorg );
+	VectorLerp( older->clientdata.view_ofs, frac, newer->clientdata.view_ofs, cl.viewheight );
 }
 
 /*
