@@ -1073,8 +1073,8 @@ qboolean CL_DemoReadMessage( byte *buffer, size_t *length )
 
 		// we already have the usercmd_t for this frame
 		// don't read next usercmd_t so predicting will work properly
-		// unless it's seeking, then any number of them go in one frame
-		if( cmd == dem_usercmd && lastpos != 0 && demo.framecount != 0 && !CL_DemoCtlSeeking( ))
+		// unless it's seeking or playing faster, then several frames go in one
+		if( cmd == dem_usercmd && lastpos != 0 && demo.framecount != 0 && !CL_DemoCtlFastForward( ))
 		{
 			FS_Seek( cls.demofile, lastpos, SEEK_SET );
 			return false; // not time yet.

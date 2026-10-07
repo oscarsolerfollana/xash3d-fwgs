@@ -928,6 +928,7 @@ int CL_DemoCamTarget( void );
 // cl_democtl.c
 qboolean CL_DemoCtlPaused( void );
 qboolean CL_DemoCtlSeeking( void );
+qboolean CL_DemoCtlFastForward( void );
 qboolean CL_DemoCtlSeekMore( void );
 qboolean CL_DemoCtlRestarting( void );
 qboolean CL_DemoCtlKey( int key, qboolean down );

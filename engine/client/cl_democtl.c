@@ -94,6 +94,20 @@ qboolean CL_DemoCtlSeeking( void )
 
 /*
 =================
+CL_DemoCtlFastForward
+
+the demo has a usercmd for every frame of the client that recorded it and
+playback reads one per frame, which caps it at the recorded speed: faster
+than x1 or seeking, it has to read as many as the clock asks for
+=================
+*/
+qboolean CL_DemoCtlFastForward( void )
+{
+	return CL_DemoCtlSeeking() || ( cls.demoplayback && democtl.speed > DEMOCTL_NORMAL_SPEED );
+}
+
+/*
+=================
 CL_DemoCtlRestarting
 
 starting the demo again to go back in time, the camera keeps following
