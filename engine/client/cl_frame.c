@@ -906,6 +906,9 @@ int CL_ParsePacketEntities( sizebuf_t *msg, qboolean delta, connprotocol_t proto
 	// add new entities into physic lists
 	CL_SetSolidEntities();
 
+	// a demo keeps what this looked like, to rewind later
+	CL_DemoCtlCapture();
+
 	// first update is the final signon stage where we actually receive an entity (i.e., the world at least)
 	if( cls.signon == ( SIGNONS - 1 ))
 	{
@@ -1319,11 +1322,15 @@ void CL_EmitEntities( void )
 
 	ref.dllFuncs.R_ClearScene ();
 
-	// link all the visible clients first
-	CL_LinkPlayers ( &cl.frames[cl.parsecountmod] );
+	// a demo being rewound draws what it kept in memory instead
+	if( !CL_DemoCtlRewindLink( ))
+	{
+		// link all the visible clients first
+		CL_LinkPlayers ( &cl.frames[cl.parsecountmod] );
 
-	// link all the entities that actually have update
-	CL_LinkPacketEntities ( &cl.frames[cl.parsecountmod] );
+		// link all the entities that actually have update
+		CL_LinkPacketEntities ( &cl.frames[cl.parsecountmod] );
+	}
 
 	// link custom user temp entities
 	clgame.dllFuncs.pfnCreateEntities();

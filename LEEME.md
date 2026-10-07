@@ -123,24 +123,28 @@ regla de un `usercmd` por fotograma, que es la que lo frenaba (la demo guarda un
 `usercmd` por fotograma del cliente y solo ~20 paquetes por segundo). Dos minutos
 tardan unos 24 fotogramas. Los mensajes de chat de ese tramo salen de golpe.
 
-Hacia atras no se puede leer: la demo solo guarda lo que cambia de un momento al
-siguiente. Pero se puede volver a cualquier actualizacion completa del servidor
-y leer hacia delante desde ahi: cada una que aparece al reproducir se apunta
-como punto de salto (posicion en el fichero y tiempo). Ir atras salta al punto
-anterior al momento pedido y avanza rapido hasta el; rebobinar hace eso en cada
-fotograma. Al saltar no se recarga el mapa: se reposiciona el fichero, se
-invalidan los fotogramas anteriores (para que ningun delta se monte sobre ellos)
-y se limpian efectos y sonidos (`CL_DemoJumpTo`, `CL_ClearMovingEffects`).
+**Rebobinar** no relee la demo: mientras se reproduce (o se avanza con RePag),
+cada paquete deja en memoria una instantanea de las entidades, en forma compacta
+(solo lo que hace falta para dibujarlas: posicion, angulos, modelo, animacion,
+arma, efectos...) y solo si cambiaron, con una completa cada 5 s. Unos 2 MB para
+dos minutos. Rebobinar dibuja esas instantaneas hacia atras, interpoladas, en
+lugar de las del ultimo paquete (`CL_DemoCtlRewindLink` en `CL_EmitEntities`), y
+tambien la vista grabada. La demo se queda quieta y no llega nada al client.dll:
+sin fundidos acumulados, sin chat repetido, sin sonido. Se puede rebobinar todo
+lo que ya ha pasado por pantalla. La primera version releia la demo en cada paso
+y quedaba fatal: el client.dll recibia de nuevo todo el tramo en cada fotograma.
 
-Toda demo empieza con una actualizacion completa. Ademas, al grabar, el cliente
-pide una cada 5 segundos (`CL_DemoKeyframeDue`: ese paquete no manda `clc_delta`
-y el servidor responde con todo). Asi las demos grabadas desde el 07/10 tienen un
-punto cada 5 s y rebobinan con suavidad (comprobado: a x2 retrocede 2 s por
-segundo y cada paso acaba en el mismo fotograma). Las anteriores solo tienen el
-del principio (y alguno suelto): rebobinan al ritmo pedido, pero a saltos, y
-peor cuanto mas lejos del principio. Rebobinando hasta el principio se queda
-ahi en pausa. Solo si el punto anterior esta en otra seccion de la demo (cambio
-de mapa) se vuelve a cargar con `playdemo`.
+**Saltar atras** (RePag, o volver a x1 tras rebobinar) si relee: la demo solo se
+lee hacia delante, pero se puede retomar desde cualquier actualizacion completa
+del servidor. Cada una que aparece se apunta como punto de salto; se salta a la
+anterior sin recargar el mapa (`CL_DemoJumpTo`: reposiciona el fichero, invalida
+los fotogramas previos y limpia efectos y sonidos) y se avanza rapido hasta el
+momento. Mientras se avanza rapido se descartan los fundidos, sacudidas, chat,
+avisos de muertes, daño y radio (`CL_DemoCtlSkipUserMsg`). Toda demo empieza con
+una actualizacion completa, y al grabar el cliente pide una cada 5 s
+(`CL_DemoKeyframeDue`: ese paquete no manda `clc_delta`), asi que en demos
+grabadas desde el 07/10 cada salto relee como mucho 5 s. Solo si el punto queda
+en otra seccion de la demo (cambio de mapa) se vuelve a cargar con `playdemo`.
 
 El radar usa `overviews/<mapa>.txt` y `.bmp`, los de HLTV. El `.bmp` pinta de
 verde puro lo que queda fuera del mapa; al cargarlo se cambia por negro. Sin

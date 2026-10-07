@@ -2252,12 +2252,24 @@ void CL_ParseUserMessage( sizebuf_t *msg, int svc_num, connprotocol_t proto )
 	// NOTE: some user messages handled into engine
 	if( !Q_strcmp( clgame.msg[i].name, "ScreenShake" ))
 	{
+		screen_shake_t shake = clgame.shake;
+
 		CL_ParseScreenShake( msg );
+
+		// a demo reading ahead as fast as it can would shake for every hit on the way
+		if( CL_DemoCtlSeeking( ))
+			clgame.shake = shake;
 		return;
 	}
 	else if( !Q_strcmp( clgame.msg[i].name, "ScreenFade" ))
 	{
+		screenfade_t fade = clgame.fade;
+
 		CL_ParseScreenFade( msg );
+
+		// and stay dark from every flashbang and death on the way
+		if( CL_DemoCtlSeeking( ))
+			clgame.fade = fade;
 		return;
 	}
 
@@ -2286,7 +2298,7 @@ void CL_ParseUserMessage( sizebuf_t *msg, int svc_num, connprotocol_t proto )
 			clgame.msg[i].name, iSize, clgame.msg[i].number );
 	}
 
-	if( clgame.msg[i].func )
+	if( clgame.msg[i].func && !CL_DemoCtlSkipUserMsg( clgame.msg[i].name ))
 	{
 		clgame.msg[i].func( clgame.msg[i].name, iSize, pbuf );
 

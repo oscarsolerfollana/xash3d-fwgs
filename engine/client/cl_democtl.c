@@ -17,6 +17,7 @@ GNU General Public License for more details.
 #include "client.h"
 #include "keydefs.h"
 #include "mod_local.h"
+#include "entity_types.h"
 
 /*
 ==============================================================================
@@ -38,7 +39,8 @@ A demo can only be read forwards: it stores what changed from one moment
 to the next. Every full update in it (the first message, and one every few
 seconds in demos recorded by this engine) is remembered as a keyframe:
 going back jumps to the keyframe before and reads forward from there as
-fast as it can, with the sound off. Rewinding does that every frame.
+fast as it can, with the sound off. Rewinding is something else: it draws
+snapshots kept in memory while the demo was read, see REWIND below.
 
 The radar draws the map from overviews/<map>.txt and .bmp, the same files
 HLTV uses, with every player on it.
@@ -117,6 +119,18 @@ qboolean CL_DemoCtlPaused( void )
 
 /*
 =================
+CL_DemoCtlHoldReading
+
+rewinding draws from memory, the demo waits where it was
+=================
+*/
+qboolean CL_DemoCtlHoldReading( void )
+{
+	return CL_DemoCtlRewinding() && !democtl.seeking && cls.demoplayback;
+}
+
+/*
+=================
 CL_DemoCtlSeeking
 
 reading ahead as fast as it can, or rewinding, which does that every
@@ -153,6 +167,485 @@ keeps following whoever it was following
 qboolean CL_DemoCtlRestarting( void )
 {
 	return democtl.pending_target >= 0.0f;
+}
+
+/*
+==============================================================================
+REWIND
+
+Reading a demo again to go back sends every message on the way to
+client.dll once more: screen fades piling up, chat repeated, the HUD all
+over the place. Rewinding doesn't read the demo at all: while it plays (or
+seeks forward), every packet leaves a snapshot of the entities in memory,
+and rewinding draws those snapshots backwards, interpolated, with nothing
+sent to client.dll. Each entity is kept in a compact form, only what
+drawing it takes, and only when it changed from the snapshot before, with
+a full snapshot every DEMOCTL_KEY_EVERY: about 2 MB a minute.
+
+Going forward again from a rewound moment reads the demo from the
+keyframe before it, with the noisiest messages left out.
+==============================================================================
+*/
+#define DEMOCTL_KEY_EVERY 100 // a full snapshot every this many, about five seconds
+
+// what drawing an entity takes
+typedef struct
+{
+	short   number;
+	short   modelindex;
+	vec3_t  origin;
+	vec3_t  angles;
+	float   frame;
+	float   framerate;
+	float   scale;
+	int     effects;
+	int     colormap;
+	short   sequence;
+	short   gaitsequence;
+	short   skin;
+	short   body;
+	short   weaponmodel;
+	short   aiment;
+	short   owner;
+	byte    eflags;
+	byte    rendermode;
+	byte    renderamt;
+	byte    renderfx;
+	color24 rendercolor;
+	byte    movetype;
+	byte    usehull;
+	byte    team;
+	byte    playerclass;
+	byte    controller[4];
+	byte    blending[4];
+	byte    removed; // gone in this snapshot
+} democtl_ent_t;
+
+typedef struct
+{
+	float    time;
+	int      first;      // into rw.states
+	int      num;
+	vec3_t   simorg;     // the recorded view
+	vec3_t   viewheight;
+	vec3_t   viewangles;
+} democtl_snap_t;
+
+static struct
+{
+	poolhandle_t   pool;
+	char           demo[MAX_QPATH];
+
+	democtl_snap_t *snaps;
+	int            numsnaps, maxsnaps;
+	democtl_ent_t  *states;
+	int            numstates, maxstates;
+
+	// the last captured set, to keep only what changed
+	int            maxents;
+	democtl_ent_t  *cur, *prev;
+	byte           *cur_present, *prev_present;
+
+	// sets rebuilt for drawing, the two snapshots around the rewind position
+	democtl_ent_t  *set[2];
+	byte           *present[2];
+	int            set_snap[2];
+} rw;
+
+static void CL_DemoCtlFreeRewind( void )
+{
+	if( rw.pool )
+		Mem_FreePool( &rw.pool );
+
+	memset( &rw, 0, sizeof( rw ));
+}
+
+static qboolean CL_DemoCtlPrepareRewind( void )
+{
+	int i, maxents = clgame.maxEntities;
+
+	if( rw.pool && !Q_stricmp( rw.demo, cls.demoname ) && rw.maxents == maxents )
+		return true;
+
+	CL_DemoCtlFreeRewind();
+
+	if( maxents <= 0 )
+		return false;
+
+	rw.pool = Mem_AllocPool( "Demo Rewind" );
+	Q_strncpy( rw.demo, cls.demoname, sizeof( rw.demo ));
+	rw.maxents = maxents;
+	rw.cur = Mem_Calloc( rw.pool, sizeof( democtl_ent_t ) * maxents );
+	rw.prev = Mem_Calloc( rw.pool, sizeof( democtl_ent_t ) * maxents );
+	rw.cur_present = Mem_Calloc( rw.pool, maxents );
+	rw.prev_present = Mem_Calloc( rw.pool, maxents );
+
+	for( i = 0; i < 2; i++ )
+	{
+		rw.set[i] = Mem_Calloc( rw.pool, sizeof( democtl_ent_t ) * maxents );
+		rw.present[i] = Mem_Calloc( rw.pool, maxents );
+		rw.set_snap[i] = -1;
+	}
+
+	return true;
+}
+
+static void CL_DemoCtlPack( const entity_state_t *in, democtl_ent_t *out )
+{
+	memset( out, 0, sizeof( *out ));
+	out->number = in->number;
+	out->modelindex = in->modelindex;
+	VectorCopy( in->origin, out->origin );
+	VectorCopy( in->angles, out->angles );
+	out->frame = in->frame;
+	out->framerate = in->framerate;
+	out->scale = in->scale;
+	out->effects = in->effects;
+	out->colormap = in->colormap;
+	out->sequence = in->sequence;
+	out->gaitsequence = in->gaitsequence;
+	out->skin = in->skin;
+	out->body = in->body;
+	out->weaponmodel = in->weaponmodel;
+	out->aiment = in->aiment;
+	out->owner = in->owner;
+	out->eflags = in->eflags;
+	out->rendermode = in->rendermode;
+	out->renderamt = in->renderamt;
+	out->renderfx = in->renderfx;
+	out->rendercolor = in->rendercolor;
+	out->movetype = in->movetype;
+	out->usehull = in->usehull;
+	out->team = in->team;
+	out->playerclass = in->playerclass;
+	memcpy( out->controller, in->controller, sizeof( out->controller ));
+	memcpy( out->blending, in->blending, sizeof( out->blending ));
+}
+
+static void CL_DemoCtlUnpack( const democtl_ent_t *in, entity_state_t *out )
+{
+	memset( out, 0, sizeof( *out ));
+	out->number = in->number;
+	out->modelindex = in->modelindex;
+	VectorCopy( in->origin, out->origin );
+	VectorCopy( in->angles, out->angles );
+	out->frame = in->frame;
+	out->framerate = in->framerate;
+	out->scale = in->scale;
+	out->effects = in->effects;
+	out->colormap = in->colormap;
+	out->sequence = in->sequence;
+	out->gaitsequence = in->gaitsequence;
+	out->skin = in->skin;
+	out->body = in->body;
+	out->weaponmodel = in->weaponmodel;
+	out->aiment = in->aiment;
+	out->owner = in->owner;
+	out->eflags = in->eflags;
+	out->rendermode = in->rendermode;
+	out->renderamt = in->renderamt;
+	out->renderfx = in->renderfx;
+	out->rendercolor = in->rendercolor;
+	out->movetype = in->movetype;
+	out->usehull = in->usehull;
+	out->team = in->team;
+	out->playerclass = in->playerclass;
+	memcpy( out->controller, in->controller, sizeof( out->controller ));
+	memcpy( out->blending, in->blending, sizeof( out->blending ));
+}
+
+/*
+=================
+CL_DemoCtlChanged
+
+whether an entity has to be kept again. Only players need every frame
+of their animation, the rest animate by themselves
+=================
+*/
+static qboolean CL_DemoCtlChanged( const democtl_ent_t *cur, const democtl_ent_t *prev )
+{
+	democtl_ent_t a = *cur;
+
+	if( cur->number > cl.maxclients )
+		a.frame = prev->frame;
+
+	return memcmp( &a, prev, sizeof( a )) != 0;
+}
+
+static void CL_DemoCtlStoreState( const democtl_ent_t *state )
+{
+	if( rw.numstates >= rw.maxstates )
+	{
+		rw.maxstates = rw.maxstates ? rw.maxstates * 2 : 4096;
+		rw.states = Mem_Realloc( rw.pool, rw.states, sizeof( democtl_ent_t ) * rw.maxstates );
+	}
+
+	rw.states[rw.numstates++] = *state;
+}
+
+/*
+=================
+CL_DemoCtlCapture
+
+a packet was just read: keep what its entities look like
+=================
+*/
+void CL_DemoCtlCapture( void )
+{
+	frame_t *frame = &cl.frames[cl.parsecountmod];
+	democtl_snap_t *snap;
+	qboolean key;
+	float time;
+	int i;
+
+	if( !cls.demoplayback || cl.background || CL_DemoCtlRewinding() || !frame->valid )
+		return;
+
+	if( !CL_DemoCtlPrepareRewind( ))
+		return;
+
+	// already kept the first time this part was read
+	time = CL_DemoGetTime();
+	if( rw.numsnaps > 0 && time <= rw.snaps[rw.numsnaps - 1].time )
+		return;
+
+	if( rw.numsnaps >= rw.maxsnaps )
+	{
+		rw.maxsnaps = rw.maxsnaps ? rw.maxsnaps * 2 : 1024;
+		rw.snaps = Mem_Realloc( rw.pool, rw.snaps, sizeof( democtl_snap_t ) * rw.maxsnaps );
+	}
+
+	memset( rw.cur_present, 0, rw.maxents );
+
+	for( i = 0; i < frame->num_entities; i++ )
+	{
+		const entity_state_t *state = &cls.packet_entities[(frame->first_entity + i) % cls.num_client_entities];
+		int n = state->number;
+
+		if( n < 0 || n >= rw.maxents )
+			continue;
+
+		CL_DemoCtlPack( state, &rw.cur[n] );
+		rw.cur_present[n] = true;
+	}
+
+	key = ( rw.numsnaps % DEMOCTL_KEY_EVERY ) == 0;
+	snap = &rw.snaps[rw.numsnaps++];
+	snap->time = time;
+	snap->first = rw.numstates;
+	VectorCopy( frame->clientdata.origin, snap->simorg );
+	VectorCopy( frame->clientdata.view_ofs, snap->viewheight );
+	VectorCopy( cl.viewangles, snap->viewangles );
+
+	for( i = 0; i < rw.maxents; i++ )
+	{
+		if( rw.cur_present[i] )
+		{
+			if( key || !rw.prev_present[i] || CL_DemoCtlChanged( &rw.cur[i], &rw.prev[i] ))
+			{
+				CL_DemoCtlStoreState( &rw.cur[i] );
+				rw.prev[i] = rw.cur[i];
+			}
+		}
+		else if( rw.prev_present[i] && !key )
+		{
+			democtl_ent_t removed = { .number = i, .removed = true };
+
+			CL_DemoCtlStoreState( &removed );
+		}
+	}
+
+	memcpy( rw.prev_present, rw.cur_present, rw.maxents );
+	snap->num = rw.numstates - snap->first;
+}
+
+/*
+=================
+CL_DemoCtlRebuild
+
+what every entity looked like at a snapshot: from the full one before it,
+applying the changes after
+=================
+*/
+static void CL_DemoCtlRebuild( int snap, int slot )
+{
+	int i, j;
+
+	if( rw.set_snap[slot] == snap )
+		return;
+
+	memset( rw.present[slot], 0, rw.maxents );
+
+	for( i = snap - ( snap % DEMOCTL_KEY_EVERY ); i <= snap; i++ )
+	{
+		const democtl_snap_t *s = &rw.snaps[i];
+
+		for( j = 0; j < s->num; j++ )
+		{
+			const democtl_ent_t *state = &rw.states[s->first + j];
+
+			if( state->removed )
+			{
+				rw.present[slot][state->number] = false;
+				continue;
+			}
+
+			rw.set[slot][state->number] = *state;
+			rw.present[slot][state->number] = true;
+		}
+	}
+
+	rw.set_snap[slot] = snap;
+}
+
+static float CL_DemoCtlRewindStart( void )
+{
+	return rw.numsnaps > 0 ? rw.snaps[0].time : 0.0f;
+}
+
+static float CL_DemoCtlRewindEnd( void )
+{
+	return rw.numsnaps > 0 ? rw.snaps[rw.numsnaps - 1].time : 0.0f;
+}
+
+// the last snapshot at or before a moment
+static int CL_DemoCtlFindSnap( float time )
+{
+	int lo = 0, hi = rw.numsnaps - 1;
+
+	while( lo < hi )
+	{
+		int mid = ( lo + hi + 1 ) / 2;
+
+		if( rw.snaps[mid].time <= time )
+			lo = mid;
+		else hi = mid - 1;
+	}
+
+	return lo;
+}
+
+static void CL_DemoCtlLerpAngles( const vec3_t from, const vec3_t to, float frac, vec3_t out )
+{
+	int i;
+
+	for( i = 0; i < 3; i++ )
+	{
+		float delta = to[i] - from[i];
+
+		if( delta > 180.0f )
+			delta -= 360.0f;
+		else if( delta < -180.0f )
+			delta += 360.0f;
+
+		out[i] = from[i] + delta * frac;
+	}
+}
+
+/*
+=================
+CL_DemoCtlRewindLink
+
+while rewinding, the entities drawn come from the snapshots instead of
+the last packet read. Returns false when not rewinding
+=================
+*/
+qboolean CL_DemoCtlRewindLink( void )
+{
+	int s0, s1, i;
+	float frac = 0.0f;
+
+	if( !CL_DemoCtlRewinding() || rw.numsnaps <= 0 || Q_stricmp( rw.demo, cls.demoname ))
+		return false;
+
+	s0 = CL_DemoCtlFindSnap( democtl.rewind_pos );
+	s1 = Q_min( s0 + 1, rw.numsnaps - 1 );
+
+	if( s1 != s0 && rw.snaps[s1].time > rw.snaps[s0].time )
+		frac = bound( 0.0f, ( democtl.rewind_pos - rw.snaps[s0].time ) / ( rw.snaps[s1].time - rw.snaps[s0].time ), 1.0f );
+
+	CL_DemoCtlRebuild( s0, 0 );
+	CL_DemoCtlRebuild( s1, 1 );
+
+	// the recorded view
+	VectorLerp( rw.snaps[s0].simorg, frac, rw.snaps[s1].simorg, cl.simorg );
+	VectorLerp( rw.snaps[s0].viewheight, frac, rw.snaps[s1].viewheight, cl.viewheight );
+	CL_DemoCtlLerpAngles( rw.snaps[s0].viewangles, rw.snaps[s1].viewangles, frac, cl.viewangles );
+
+	for( i = 1; i < rw.maxents; i++ )
+	{
+		const democtl_ent_t *from, *to;
+		cl_entity_t *ent;
+		vec3_t origin, angles;
+
+		if( !rw.present[0][i] )
+			continue;
+
+		from = &rw.set[0][i];
+		to = rw.present[1][i] ? &rw.set[1][i] : from;
+
+		if( !from->modelindex || FBitSet( from->effects, EF_NODRAW ))
+			continue;
+
+		if( !( ent = CL_GetEntityByIndex( i )))
+			continue;
+
+		VectorLerp( from->origin, frac, to->origin, origin );
+		CL_DemoCtlLerpAngles( from->angles, to->angles, frac, angles );
+
+		ent->index = i;
+		ent->model = CL_ModelHandle( from->modelindex );
+		if( !ent->model )
+			continue;
+
+		CL_DemoCtlUnpack( from, &ent->curstate );
+		ent->curstate.messagenum = cl.parsecount;
+		ent->curstate.animtime = cl.time; // shows the recorded frame
+		VectorCopy( origin, ent->curstate.origin );
+		VectorCopy( angles, ent->curstate.angles );
+		ent->prevstate = ent->curstate;
+
+		VectorCopy( origin, ent->origin );
+		VectorCopy( angles, ent->angles );
+		VectorCopy( origin, ent->latched.prevorigin );
+		VectorCopy( angles, ent->latched.prevangles );
+		ent->latched.prevanimtime = cl.time;
+		ent->latched.prevframe = from->frame;
+		ent->latched.prevsequence = from->sequence;
+
+		VectorCopy( origin, ent->attachment[0] );
+		VectorCopy( origin, ent->attachment[1] );
+		VectorCopy( origin, ent->attachment[2] );
+		VectorCopy( origin, ent->attachment[3] );
+
+		CL_AddVisibleEntity( ent, i <= cl.maxclients ? ET_PLAYER : ET_NORMAL );
+	}
+
+	return true;
+}
+
+/*
+=================
+CL_DemoCtlSkipUserMsg
+
+reading ahead as fast as it can, these would all go off at once
+=================
+*/
+qboolean CL_DemoCtlSkipUserMsg( const char *name )
+{
+	static const char *noisy[] = { "SayText", "TextMsg", "HudText", "HudTextPro", "Damage", "DeathMsg", "SendAudio" };
+	int i;
+
+	if( !CL_DemoCtlSeeking( ))
+		return false;
+
+	for( i = 0; i < ARRAYSIZE( noisy ); i++ )
+	{
+		if( !Q_strcmp( name, noisy[i] ))
+			return true;
+	}
+
+	return false;
 }
 
 static void CL_DemoCtlSetSpeed( int speed )
@@ -276,9 +769,10 @@ static void CL_DemoCtlSeekBy( float delta )
 {
 	float from;
 
+	// rewinding moves around what was kept in memory
 	if( CL_DemoCtlRewinding( ))
 	{
-		democtl.rewind_pos = bound( 0.0f, democtl.rewind_pos + delta, CL_DemoGetLength( ));
+		democtl.rewind_pos = bound( CL_DemoCtlRewindStart(), democtl.rewind_pos + delta, CL_DemoCtlRewindEnd( ));
 		return;
 	}
 
@@ -313,13 +807,24 @@ qboolean CL_DemoCtlSeekMore( void )
 
 static void CL_DemoCtlForward( void )
 {
+	if( !CL_DemoCtlRewinding( ))
+		return;
+
+	// the demo carries on from where the rewind got to
 	democtl.rewind = DEMOCTL_NOT_REWINDING;
+	CL_DemoCtlSeek( democtl.rewind_pos );
 }
 
 static void CL_DemoCtlStartRewind( void )
 {
+	CL_DemoCtlStopSeek();
+
+	// a flash or a shake belongs to the moment being left behind
+	memset( &clgame.fade, 0, sizeof( clgame.fade ));
+	memset( &clgame.shake, 0, sizeof( clgame.shake ));
+
 	democtl.rewind = 0;
-	democtl.rewind_pos = democtl.seeking ? democtl.seek_target : CL_DemoGetTime();
+	democtl.rewind_pos = bound( CL_DemoCtlRewindStart(), CL_DemoGetTime(), CL_DemoCtlRewindEnd( ));
 	democtl.rewind_last = Platform_DoubleTime();
 	CL_DemoCtlSetSpeed( DEMOCTL_NORMAL_SPEED );
 }
@@ -564,7 +1069,7 @@ void CL_DemoCtlFrame( void )
 	if( democtl.seeking && CL_DemoGetTime() >= democtl.seek_target )
 		CL_DemoCtlStopSeek();
 
-	if( CL_DemoCtlRewinding() && !democtl.paused && !democtl.seeking )
+	if( CL_DemoCtlRewinding() && !democtl.paused )
 	{
 		double now = Platform_DoubleTime();
 		float dt = bound( 0.0f, now - democtl.rewind_last, DEMOCTL_MAX_REWIND_DT );
@@ -572,15 +1077,12 @@ void CL_DemoCtlFrame( void )
 		democtl.rewind_last = now;
 		democtl.rewind_pos -= democtl_rewind_speeds[democtl.rewind] * dt;
 
-		// at the start it stops there, paused
-		if( democtl.rewind_pos <= 0.0f )
+		// at the start it waits there, paused
+		if( democtl.rewind_pos <= CL_DemoCtlRewindStart( ))
 		{
-			democtl.rewind_pos = 0.0f;
-			CL_DemoCtlForward();
+			democtl.rewind_pos = CL_DemoCtlRewindStart();
 			democtl.paused = true;
 		}
-
-		CL_DemoCtlSeek( democtl.rewind_pos );
 	}
 }
 
@@ -892,7 +1394,7 @@ void CL_DemoCtlDraw( void )
 		time = democtl.seek_target;
 	else time = CL_DemoGetTime();
 
-	frac = length > 0.0f ? bound( 0.0f, CL_DemoGetTime() / length, 1.0f ) : 0.0f;
+	frac = length > 0.0f ? bound( 0.0f, time / length, 1.0f ) : 0.0f;
 
 	// the bar: what was played, and where a seek is heading
 	CL_DemoCtlFill( 0, refState.height - 6, refState.width, 6, (rgba_t){ 0, 0, 0, 160 });

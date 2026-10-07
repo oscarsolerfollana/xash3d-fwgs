@@ -944,6 +944,10 @@ void CL_DemoGetPosition( int *entry, int *offset, float *timestamp );
 qboolean CL_DemoJumpTo( int entry, int offset, float timestamp );
 qboolean CL_DemoKeyframeDue( void );
 void CL_DemoCtlKeyframe( void );
+void CL_DemoCtlCapture( void );
+qboolean CL_DemoCtlRewindLink( void );
+qboolean CL_DemoCtlSkipUserMsg( const char *name );
+qboolean CL_DemoCtlHoldReading( void );
 void CL_ClearMovingEffects( void );
 
 static inline qboolean CL_IsThirdPerson( void )

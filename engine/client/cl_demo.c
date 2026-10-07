@@ -1103,7 +1103,7 @@ qboolean CL_DemoReadMessage( byte *buffer, size_t *length )
 		return false;
 	}
 
-	if(( !cl.background && ( cl.paused || CL_DemoCtlPaused() || cls.key_dest != key_game )) || cls.key_dest == key_console )
+	if(( !cl.background && ( cl.paused || CL_DemoCtlPaused() || CL_DemoCtlHoldReading() || cls.key_dest != key_game )) || cls.key_dest == key_console )
 	{
 		demo.starttime += host.frametime;
 		return false; // paused
