@@ -1624,8 +1624,13 @@ static void R_DrawTextureChains( void )
 			continue;	// draw transparent surfaces later
 		}
 
+		R_BumpBegin( t, i ); // custom: relief and reflections
 		for( ; s != NULL; s = s->texturechain )
+		{
+			R_BumpSurface( s );
 			R_RenderBrushPoly( s, CULL_VISIBLE );
+		}
+		R_BumpEnd( );
 		t->texturechain = NULL;
 	}
 }
@@ -1974,8 +1979,12 @@ void R_DrawBrushModel( cl_entity_t *e )
 	for( int i = 0; i < num_sorted; i++ )
 	{
 		if( !allow_vbo || !R_AddSurfToVBO( gpGlobals->draw_surfaces[i].surf, drawlightmap ))
+		{
+			R_BumpBrushSurface( gpGlobals->draw_surfaces[i].surf ); // custom: relief and reflections
 			R_RenderBrushPoly( gpGlobals->draw_surfaces[i].surf, gpGlobals->draw_surfaces[i].cull );
+		}
 	}
+	R_BumpEnd( );
 
 	R_DrawVBO( drawlightmap, true );
 
@@ -3859,7 +3868,8 @@ void R_MarkLeaves( void )
 	tr.visframecount++;
 
 	// see-through walls need the whole map, not just the PVS of this leaf
-	if( r_novis.value || R_WallhackActive( ) || FBitSet( RI.rvp.flags, RF_DRAW_OVERVIEW ) || !RI.viewleaf || !WORLDMODEL->visdata )
+	// custom: a mirror is seen from behind its wall, the whole map too
+	if( r_novis.value || R_WallhackActive( ) || FBitSet( RI.rvp.flags, RF_DRAW_OVERVIEW ) || !RI.viewleaf || !WORLDMODEL->visdata || R_BumpDrawingPlanar( ))
 		novis = true;
 
 	gEngfuncs.R_FatPVS( RI.rvp.vieworigin, r_pvs_radius->value, RI.visbytes, false, novis );

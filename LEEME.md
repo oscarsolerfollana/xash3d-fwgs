@@ -5,31 +5,36 @@ Worktree de `local/oscar`. Aquí vive todo lo que **nunca** va a upstream: el cv
 de depuración (`dbg_weapondata`, `sv_trace_pushers`, `pm_trace_ladder`).
 
 El cuaderno de la investigación (`ESTADO.md`) y el reparto de los dos entornos
-(`ENTORNOS.md`) están en `C:\Users\Oscar\Proyectos\xash3d`. Esa es la copia buena;
-el `ESTADO.md` de aquí es el de la rama y se queda atrás.
+(`ENTORNOS.md`) están en `C:\Users\Oscar\Proyectos\xash3d`.
 
-## Cómo funciona
+## Cómo está repartido
 
-No hay contenido de juegos en esta carpeta. Los lanzadores llevan
-`-rodir C:/Users/Oscar/Proyectos/xash3d`, que monta la carpeta oficial en solo
-lectura. Lo que sí hay aquí pisa a lo de allí, y de eso se aprovechan los cuatro
-dlls de juego con el cap del bunnyhop quitado:
+En la raíz solo hay código. El juego compilado (release) vive en `juego/`, que
+git ignora salvo los dos `userconfig.cfg`:
 
-    valve/dlls/hl.dll
-    valve/cl_dlls/client.dll
-    cstrike13/dlls/mp.dll
-    cstrike13/cl_dlls/client.dll
+    juego/xash3d.exe, xash.dll, ref_gl.dll, menu.dll...      el motor
+    juego/valve, cstrike, cstrike13, gearbox, ns, firearms    los juegos
+
+Se arranca con `juego/xash3d.exe -game <juego> -fullscreen`. Después de compilar,
+copiar los binarios nuevos a `juego/`.
+
+Los cuatro dlls de juego llevan el cap del bunnyhop quitado:
+
+    juego/valve/dlls/hl.dll
+    juego/valve/cl_dlls/client.dll
+    juego/cstrike13/dlls/mp.dll
+    juego/cstrike13/cl_dlls/client.dll
 
 En la carpeta oficial esos cuatro están sin tocar, byte a byte como los de Steam.
 
-Si alguna vez hay que rehacerlos: copiar el de la carpeta oficial y pasarle
-`python patches/patch_bhopcap.py [valve|cs13|todo]` desde aquí.
+Si alguna vez hay que rehacerlos: copiar el de la carpeta oficial y, desde
+`juego/`, pasarle `python ../patches/patch_bhopcap.py [valve|cs13|todo]`.
 
 ## Trucos y bunnyhop, activos de serie
 
-`valve/userconfig.cfg` y `cstrike13/userconfig.cfg` los encienden en cada arranque.
-Xash ejecuta ese fichero despues de `config.cfg`, asi que mandan siempre, aunque el
-config guardado diga otra cosa:
+`juego/valve/userconfig.cfg` y `juego/cstrike13/userconfig.cfg` los encienden en
+cada arranque. Xash ejecuta ese fichero despues de `config.cfg`, asi que mandan
+siempre, aunque el config guardado diga otra cosa:
 
     bunnyhop 1       re-salto automatico (2 = ademas lo cuenta por consola)
     wallhack 0.8     mundo translucido (0.1 a 0.95; 0 lo apaga)
@@ -42,8 +47,7 @@ config guardado diga otra cosa:
 La **enye** (`bind SEMICOLON cheatmenu`) abre el menu numerado: 1 wallhack,
 2 aimbot (apagado / pecho / cabeza), 0 cerrar.
 
-Para otro juego basta con crear `custom-xash/<juego>/userconfig.cfg`; no hace falta
-copiar el juego entero, se sigue leyendo del `-rodir`.
+Para otro juego basta con crear `juego/<juego>/userconfig.cfg`.
 
 ## Demos con camara libre (como HLTV)
 
@@ -180,6 +184,5 @@ los CT en la calle). El equipo se saca del modelo del jugador.
 
 - Las configs son de esta carpeta, no las de la oficial. Los binds y los cvars de
   aquí no se ven allí, y al revés.
-- Si añades un lanzador, ponle el `-rodir` o no encontrará los juegos.
 - Para medir cualquier cosa que vaya a un issue o a comparar con GoldSrc, usa la
   carpeta oficial. Aquí el motor y los dlls están tocados.

@@ -564,6 +564,7 @@ void R_SetupGL( qboolean set_gl_state )
 
 	pglMatrixMode( GL_MODELVIEW );
 	GL_LoadMatrix( RI.worldviewMatrix );
+	R_BumpClipPlane(); // custom: mirrors (gl_bump.c)
 
 	GL_Cull( GL_FRONT );
 
@@ -1080,6 +1081,10 @@ void R_RenderFrame( const ref_viewpass_t *rvp )
 	if( r_norefresh->value )
 		return;
 
+	// custom: reflection probes, drawn on the first frame of a map (gl_bump.c)
+	R_BumpProbes( rvp );
+	R_BumpDynamic( rvp ); // custom: reflections around the player, some sides each frame
+
 	// setup the initial render params
 	R_SetupRefParams( rvp );
 
@@ -1105,7 +1110,16 @@ void R_RenderFrame( const ref_viewpass_t *rvp )
 		R_RunViewmodelEvents();
 
 	tr.realframecount++; // right called after viewmodel events
-	R_RenderScene();
+	if( R_PostBegin( )) // custom: shader post processing (gl_post.c)
+	{
+		R_RenderScene();
+		R_PostEnd();
+	}
+	else
+	{
+		R_RenderScene();
+		R_Bloom(); // custom
+	}
 
 	return;
 }

@@ -381,3 +381,6 @@ GEMINI.md
 /cstrike13/**/*.dll
 /valve/liblist.gam
 /cstrike13/liblist.gam
+
+# el juego (release) vive aparte
+/juego/

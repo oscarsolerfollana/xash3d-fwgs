@@ -74,7 +74,7 @@ byte *GL_ResampleTexture( const byte *source, int inWidth, int inHeight, int out
 				((byte *)(out+x))[0] = 128 + (byte)(127.0f * normal[0]);
 				((byte *)(out+x))[1] = 128 + (byte)(127.0f * normal[1]);
 				((byte *)(out+x))[2] = 128 + (byte)(127.0f * normal[2]);
-				((byte *)(out+x))[3] = 255;
+				((byte *)(out+x))[3] = ( pix1[3] + pix2[3] + pix3[3] + pix4[3] ) >> 2; // custom: keep the alpha (gloss in gl_bump.c)
 			}
 		}
 	}

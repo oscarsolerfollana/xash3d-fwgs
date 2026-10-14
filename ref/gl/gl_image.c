@@ -776,8 +776,10 @@ static void GL_BuildMipMap( byte *in, int srcWidth, int srcHeight, int srcDepth,
 				for( int x = 0; x < mipWidth; x++, row += 8, out += 4 )
 				{
 					vec3_t normal;
+					int alpha;
 					if((( x << 1 ) + 1 ) < srcWidth )
 					{
+						alpha = ( in[row+3] + in[row+7] + next[row+3] + next[row+7] ) >> 2;
 						normal[0] = MAKE_SIGNED( in[row+0] ) + MAKE_SIGNED( in[row+4] )
 						+ MAKE_SIGNED( next[row+0] ) + MAKE_SIGNED( next[row+4] );
 						normal[1] = MAKE_SIGNED( in[row+1] ) + MAKE_SIGNED( in[row+5] )
@@ -787,6 +789,7 @@ static void GL_BuildMipMap( byte *in, int srcWidth, int srcHeight, int srcDepth,
 					}
 					else
 					{
+						alpha = ( in[row+3] + next[row+3] ) >> 1;
 						normal[0] = MAKE_SIGNED( in[row+0] ) + MAKE_SIGNED( next[row+0] );
 						normal[1] = MAKE_SIGNED( in[row+1] ) + MAKE_SIGNED( next[row+1] );
 						normal[2] = MAKE_SIGNED( in[row+2] ) + MAKE_SIGNED( next[row+2] );
@@ -798,7 +801,7 @@ static void GL_BuildMipMap( byte *in, int srcWidth, int srcHeight, int srcDepth,
 					out[0] = 128 + (byte)(127.0f * normal[0]);
 					out[1] = 128 + (byte)(127.0f * normal[1]);
 					out[2] = 128 + (byte)(127.0f * normal[2]);
-					out[3] = 255;
+					out[3] = alpha; // custom: keep the alpha (gloss in gl_bump.c), it was 255 in the mips
 				}
 			}
 		}

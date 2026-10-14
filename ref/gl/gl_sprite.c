@@ -227,8 +227,17 @@ static float R_SpriteGlowBlend( vec3_t origin, int rendermode, int renderfx, flo
 	{
 		pmtrace_t *tr = gEngfuncs.EV_VisTraceLine( RI.rvp.vieworigin, origin, r_traceglow.value ? PM_GLASS_IGNORE : (PM_GLASS_IGNORE|PM_STUDIO_IGNORE));
 
+		// custom: a glow a little inside the lamp or the ceiling: from far, at a grazing angle, the line
+		// went into that surface long before reaching it, and it went out; what is just behind the
+		// surface hit (not far behind, like behind a pillar) still glows
 		if(( 1.0f - tr->fraction ) * dist > 8.0f )
-			return 0.0f;
+		{
+			vec3_t behind;
+
+			VectorSubtract( origin, tr->endpos, behind );
+			if( fabs( DotProduct( behind, tr->plane.normal )) > 8.0f )
+				return 0.0f;
+		}
 	}
 
 	if( renderfx == kRenderFxNoDissipation )

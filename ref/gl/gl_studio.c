@@ -3242,16 +3242,61 @@ static cl_entity_t *R_FindParentEntity( cl_entity_t *e, cl_entity_t **entities, 
 R_DrawStudioModel
 =================
 */
+static void R_DrawStudioModelReal( cl_entity_t *e );
+static qboolean studio_reflection;	// custom: drawing a model in a reflection
+
 void R_DrawStudioModel( cl_entity_t *e )
 {
-	if( FBitSet( RI.rvp.flags, RF_DRAW_CUBEMAP ))
+	cl_entity_t saved, parent_saved, *parent = NULL;
+	player_info_t info_saved, parent_info_saved, *info = NULL, *parent_info = NULL;
+
+	if( !FBitSet( RI.rvp.flags, RF_DRAW_CUBEMAP ))
+	{
+		R_DrawStudioModelReal( e );
 		return;
+	}
+
+	// custom: the reflections around the player (gl_bump.c) have the other players
+	if( !R_BumpDrawingDynamic( ) || ( e->index == gp_cl->playernum + 1 && !R_BumpDrawingPlanar( )))
+		return;
+
+	// drawn several times a frame there: the walk of the legs went on each time (they ran like
+	// a cartoon); everything a draw changes is put back, and no events (sounds, flashes) twice
+	saved = *e;
+	if( e->player )
+		info = gEngfuncs.pfnPlayerInfo( e->index - 1 );
+	if( e->curstate.movetype == MOVETYPE_FOLLOW )
+	{
+		parent = CL_GetEntityByIndex( e->curstate.aiment );
+		if( parent )
+		{
+			parent_saved = *parent;
+			if( parent->player )
+				parent_info = gEngfuncs.pfnPlayerInfo( parent->index - 1 );
+		}
+	}
+	if( info ) info_saved = *info;
+	if( parent_info ) parent_info_saved = *parent_info;
+
+	studio_reflection = true;
+	R_DrawStudioModelReal( e );
+	studio_reflection = false;
+
+	*e = saved;
+	if( parent ) *parent = parent_saved;
+	if( info ) *info = info_saved;
+	if( parent_info ) *parent_info = parent_info_saved;
+}
+
+static void R_DrawStudioModelReal( cl_entity_t *e )
+{
+	int events = studio_reflection ? 0 : STUDIO_EVENTS;
 
 	R_StudioSetupTimings();
 
 	if( e->player )
 	{
-		R_StudioDrawModelInternal( e, STUDIO_RENDER|STUDIO_EVENTS );
+		R_StudioDrawModelInternal( e, STUDIO_RENDER|events );
 	}
 	else if( e->curstate.movetype == MOVETYPE_FOLLOW )
 	{
@@ -3273,12 +3318,12 @@ void R_DrawStudioModel( cl_entity_t *e )
 			VectorCopy( RI.currententity->origin, e->origin );
 			RI.currententity = e;
 
-			R_StudioDrawModelInternal( e, STUDIO_RENDER|STUDIO_EVENTS );
+			R_StudioDrawModelInternal( e, STUDIO_RENDER|events );
 		}
 	}
 	else
 	{
-		R_StudioDrawModelInternal( e, STUDIO_RENDER|STUDIO_EVENTS );
+		R_StudioDrawModelInternal( e, STUDIO_RENDER|events );
 	}
 }
 

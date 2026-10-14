@@ -59,9 +59,9 @@ void VGL_ShimEndFrame( void );
 #define BLOCK_SIZE_DEFAULT	128		// for keep backward compatibility
 #define BLOCK_SIZE_MAX	1024
 
-#define MAX_TEXTURES            8192	// a1ba: increased by users request
+#define MAX_TEXTURES            32768	// custom: many big textures (was 8192)
 #define MAX_DETAIL_TEXTURES	256
-#define MAX_LIGHTMAPS	256
+#define MAX_LIGHTMAPS	4096	// custom: was 256 ("AllocBlock: full" with big maps)
 #define SUBDIVIDE_SIZE	64
 #define MAX_DECAL_SURFS	4096
 #define MAX_DRAW_STACK	2		// normal view and menu view
@@ -316,6 +316,34 @@ void R_ClearDecals( void );
 // gl_draw.c
 //
 void R_Set2DMode( qboolean enable );
+
+//
+// gl_bloom.c (custom)
+//
+void R_InitBloom( void );
+void R_Bloom( void );
+
+//
+// gl_post.c (custom)
+//
+void R_InitPost( void );
+void R_InitBump( void );
+qboolean R_BumpBegin( texture_t *t, int index );
+void R_BumpSurface( const msurface_t *s );
+void R_BumpEnd( void );
+void R_BumpBrushSurface( const msurface_t *s );
+void R_BumpProbes( const ref_viewpass_t *rvp );
+qboolean R_PostBegin( void );
+void R_PostEnd( void );
+qboolean R_PostRunning( void );
+qboolean R_PostScreenReflections( void );
+void R_BumpDynamic( const ref_viewpass_t *rvp );
+qboolean R_BumpDrawingDynamic( void );
+qboolean R_BumpDynamicOn( void );
+qboolean R_BumpDynamicCube( GLuint *color, GLuint *depth, vec3_t origin, float zfar[6], int *size );
+void R_BumpClipPlane( void );
+qboolean R_BumpDrawingPlanar( void );
+int R_BumpMirrors( GLuint *tex, vec4_t *plane, vec3_t *eye, vec3_t *vf, vec3_t *vr, vec3_t *vu, float *tanx, float *tany );
 void GL_UpdateTexture( int texnum, int cols, int rows, int width, int height, const byte *buffer, pixformat_t fmt );
 
 //
