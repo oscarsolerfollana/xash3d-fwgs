@@ -38,9 +38,9 @@ TARGETS = {
          "518b0dac7e9a01d981f4010000d80d08969601"),
     ],
     "cs13": [
-        (os.path.join("cstrike13", "dlls", "mp.dll"), 0x4E5D0,
+        (os.path.join("cstrike", "dlls", "mp.dll"), 0x4E5D0,
          "518b0d80300e10d981f4010000d80d10d20810"),
-        (os.path.join("cstrike13", "cl_dlls", "client.dll"), 0x39DF0,
+        (os.path.join("cstrike", "cl_dlls", "client.dll"), 0x39DF0,
          "518b0dd4840c10d981f4010000d80d00c60610"),
     ],
 }
