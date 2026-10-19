@@ -816,8 +816,20 @@ static void CL_DrawCrosshair( void )
 	if( !clgame.ds.pCrosshair || !cl_crosshair.value )
 		return;
 
+	// custom: with the realistic precision there are only the sights (cl_vaiven.c)
+	if( CL_PrecisionRealista( ))
+		return;
+
 	// any camera on or client is died
 	if( cl.local.health <= 0 || cl.viewentity != ( cl.playernum + 1 ))
+		return;
+
+	// a demo's free view, on nobody
+	if( CL_DemoCamFree( ))
+		return;
+
+	// aiming down the sights, they are the crosshair (cl_ads.c)
+	if( CL_AdsApuntando( ))
 		return;
 
 	// get crosshair dimension
@@ -1614,6 +1626,49 @@ static client_sprite_t *SPR_GetList( char *psz, int *piCount )
 }
 
 /*
+=========
+CL_DrawHudIcon
+
+a picture of the game's sprites/hud.txt, drawn the way client.dll draws
+them (additive, in the color given), for what the engine draws itself.
+Its width, or 0 when the game doesn't have it. Doesn't draw with draw false
+=========
+*/
+int CL_DrawHudIcon( const char *name, int x, int y, int r, int g, int b, qboolean draw )
+{
+	const client_sprite_t *list, *found = NULL;
+	int i, count, res = clgame.scrInfo.iWidth < 640 ? 320 : 640;
+	HSPRITE hspr;
+
+	if( !( list = SPR_GetList( "sprites/hud.txt", &count )))
+		return 0;
+
+	for( i = 0; i < count; i++ )
+	{
+		if( list[i].iRes == res && !Q_stricmp( list[i].szName, name ))
+		{
+			found = &list[i];
+			break;
+		}
+	}
+
+	if( !found )
+		return 0;
+
+	if( draw )
+	{
+		// loaded only once, after that it's found by its name
+		if( !( hspr = pfnSPR_Load( va( "sprites/%s.spr", found->szSprite ))))
+			return 0;
+
+		pfnSPR_Set( hspr, r, g, b );
+		pfnSPR_DrawAdditive( 0, x, y, &found->rc );
+	}
+
+	return found->rc.right - found->rc.left;
+}
+
+/*
 =============
 CL_FillRGBA
 
@@ -1783,6 +1838,8 @@ static int GAME_EXPORT pfnServerCmd( const char *szCmdString )
 	if( COM_StringEmptyOrNULL( szCmdString ))
 		return 0;
 
+	CL_VaivenComando( szCmdString ); // custom: the skills of the class
+
 	// just like the client typed "cmd xxxxx" at the console
 	MSG_BeginClientCmd( &cls.netchan.message, clc_stringcmd );
 	MSG_WriteString( &cls.netchan.message, szCmdString );
@@ -1876,6 +1933,9 @@ pfnPlaySoundByName
 static void GAME_EXPORT pfnPlaySoundByName( const char *szSound, float volume )
 {
 	int hSound = S_RegisterSound( szSound );
+	if( CL_DemoCamSkipSound( cl.viewentity, CHAN_ITEM ))
+		return;
+
 	S_StartSound( NULL, cl.viewentity, CHAN_ITEM, hSound, volume, ATTN_NORM, PITCH_NORM, SND_STOP_LOOPING );
 }
 
@@ -1891,6 +1951,9 @@ static void GAME_EXPORT pfnPlaySoundByIndex( int iSound, float volume )
 	iSound = bound( 0, iSound, MAX_SOUNDS );
 	int hSound = cl.sound_index[iSound];
 	if( !hSound ) return;
+
+	if( CL_DemoCamSkipSound( cl.viewentity, CHAN_ITEM ))
+		return;
 
 	S_StartSound( NULL, cl.viewentity, CHAN_ITEM, hSound, volume, ATTN_NORM, PITCH_NORM, SND_STOP_LOOPING );
 }
@@ -2096,6 +2159,7 @@ return interpolated angles from previous frame
 */
 static void GAME_EXPORT pfnSetViewAngles( float *angles )
 {
+	if( angles ) CL_AdsRetroceso( angles, __builtin_return_address( 0 )); // custom: the kick of the shots
 	if( angles ) VectorCopy( angles, cl.viewangles );
 }
 
@@ -2257,9 +2321,14 @@ int GAME_EXPORT PM_CL_PointContents( const float *p, int *truecontents )
 	return PM_PointContentsPmove( clgame.pmove, p, truecontents );
 }
 
+double pmcl_trazas_t; int pmcl_trazas_n;	// custom: r_fps_log, the traces of the client dll (NS: one per particle that collides)
 pmtrace_t *PM_CL_TraceLine( float *start, float *end, int flags, int usehull, int ignore_pe )
 {
-	return PM_TraceLine( clgame.pmove, start, end, flags, usehull, ignore_pe );
+	double t0 = Sys_DoubleTime();
+	pmtrace_t *tr = PM_TraceLine( clgame.pmove, start, end, flags, usehull, ignore_pe );
+	pmcl_trazas_t += Sys_DoubleTime() - t0;
+	pmcl_trazas_n++;
+	return tr;
 }
 
 static void GAME_EXPORT pfnPlaySoundByNameAtLocation( char *szSound, float volume, float *origin )
@@ -2353,6 +2422,7 @@ pfnPlaySound
 */
 static void GAME_EXPORT pfnPlaySound( int ent, float *org, int chan, const char *samp, float vol, float attn, int flags, int pitch )
 {
+	samp = CL_VariantesSonido( ent, samp );
 	S_StartSound( org, ent, chan, S_RegisterSound( samp ), vol, attn, pitch, flags );
 }
 
@@ -2392,6 +2462,10 @@ pfnIsLocal
 */
 static int GAME_EXPORT pfnIsLocal( int playernum )
 {
+	// a demo following someone: his shots are the ones seen from the inside
+	if( CL_DemoCamOnOther( ))
+		return playernum + 1 == CL_DemoCamTarget();
+
 	if( playernum == cl.playernum )
 		return true;
 	return false;
@@ -2549,7 +2623,10 @@ pfnPlayerTrace
 */
 static void GAME_EXPORT CL_PlayerTrace( float *start, float *end, int traceFlags, int ignore_pe, pmtrace_t *tr )
 {
+	vec3_t	fin;
+
 	if( !tr ) return;
+	end = (float *)CL_AdsBala( start, end, fin );	// custom: the shots while aiming (cl_ads.c)
 	*tr = PM_PlayerTraceExt( clgame.pmove, start, end, traceFlags, clgame.pmove->numphysent, clgame.pmove->physents, ignore_pe, NULL );
 }
 
@@ -2561,7 +2638,10 @@ pfnPlayerTraceExt
 */
 static void GAME_EXPORT CL_PlayerTraceExt( float *start, float *end, int traceFlags, int (*pfnIgnore)( physent_t *pe ), pmtrace_t *tr )
 {
+	vec3_t	fin;
+
 	if( !tr ) return;
+	end = (float *)CL_AdsBala( start, end, fin );	// custom: the shots while aiming (cl_ads.c)
 	*tr = PM_PlayerTraceExt( clgame.pmove, start, end, traceFlags, clgame.pmove->numphysent, clgame.pmove->physents, -1, pfnIgnore );
 }
 
@@ -3086,6 +3166,9 @@ pfnPlaySoundByNameAtPitch
 static void GAME_EXPORT pfnPlaySoundByNameAtPitch( char *filename, float volume, int pitch )
 {
 	int hSound = S_RegisterSound( filename );
+	if( CL_DemoCamSkipSound( cl.viewentity, CHAN_ITEM ))
+		return;
+
 	S_StartSound( NULL, cl.viewentity, CHAN_ITEM, hSound, volume, 1.0, pitch, SND_STOP_LOOPING );
 }
 

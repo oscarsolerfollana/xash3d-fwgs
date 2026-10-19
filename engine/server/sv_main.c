@@ -63,7 +63,12 @@ CVAR_DEFINE_AUTO( mp_logfile, "1", 0, "log multiplayer frags to console" );
 CVAR_DEFINE_AUTO( sv_log_singleplayer, "0", FCVAR_ARCHIVE, "allows logging in singleplayer games" );
 CVAR_DEFINE_AUTO( sv_log_onefile, "0", FCVAR_ARCHIVE, "logs server information to only one file" );
 CVAR_DEFINE_AUTO( sv_trace_messages, "0", FCVAR_LATCH, "enable server usermessages tracing (good for developers)" );
+static CVAR_DEFINE_AUTO( dbg_posiciones, "0", 0, "custom: log every player's position once per second" );
 CVAR_DEFINE_AUTO( sv_trace_pushers, "", 0, "debug: trace MOVETYPE_PUSH entities of this classname" );
+CVAR_DEFINE_AUTO( sv_trace_shots, "0", 0, "debug: log long traces fired by players (bullets)" );
+CVAR_DEFINE_AUTO( precision_realista, "0", FCVAR_ARCHIVE, "custom: 1 = aiming down the sights the bullets go where the sights are, off only by what the weapon does by itself (precision.txt), and the aim sways (cl_vaiven.c); 0 = the game's spread (precision clasica / realista)" );
+CVAR_DEFINE_AUTO( precision_cadera, "3", FCVAR_ARCHIVE, "custom: with precision_realista, how far off the bullets go shooting from the hip, times the game's spread" );
+CVAR_DEFINE_AUTO( sv_ads_dispersion, "0.4", FCVAR_ARCHIVE, "custom: how far off the view the bullets of who aims down the sights go, times the game's (1 = as without aiming)" );
 CVAR_DEFINE_AUTO( sv_master_response_timeout, "4", FCVAR_ARCHIVE, "master server heartbeat response timeout in seconds" );
 CVAR_DEFINE_AUTO( sv_autosave, "1", FCVAR_ARCHIVE|FCVAR_SERVER|FCVAR_PRIVILEGED, "enable autosaving" );
 CVAR_DEFINE_AUTO( sv_speedhack_kick, "10", FCVAR_ARCHIVE, "number of speedhack warns before automatic kick (0 to disable)" );
@@ -590,9 +595,34 @@ static qboolean SV_IsSimulating( void )
 SV_RunGameFrame
 =================
 */
+static void SV_DbgPosiciones( void )
+{
+	static double siguiente;
+	int i;
+
+	if( !dbg_posiciones.value )
+		return;
+	if( sv.time < siguiente && siguiente - sv.time < 2.0 )
+		return;
+	siguiente = sv.time + 1.0;
+
+	for( i = 0; i < svs.maxclients; i++ )
+	{
+		sv_client_t *cl = &svs.clients[i];
+		edict_t *e = cl->edict;
+
+		if( cl->state != cs_spawned || !SV_IsValidEdict( e ))
+			continue;
+		Con_Printf( "[pos] %.1f %d %.0f %.0f %.0f %.0f %d %d %d \"%s\"\n", sv.time, i,
+			e->v.origin[0], e->v.origin[1], e->v.origin[2], sqrt( e->v.velocity[0] * e->v.velocity[0] + e->v.velocity[1] * e->v.velocity[1] ),
+			e->v.team, (int)e->v.health, e->v.deadflag, cl->name );
+	}
+}
+
 static qboolean SV_RunGameFrame( void )
 {
 	sv.simulating = SV_IsSimulating();
+	SV_DbgPosiciones();
 
 	if( !sv.simulating )
 		return true;
@@ -698,6 +728,12 @@ void Host_ServerFrame( void )
 
 	// let everything in the world think and move
 	if( !SV_RunGameFrame ()) return;
+
+	SV_VariantesFrame();
+	SV_MarcadorFrame();
+
+	// everyone's health, armor, ammo and money for clients that record demos
+	SV_DemoStatsFrame();
 
 	// send messages back to the clients that had packets read this frame
 	SV_SendClientMessages ();
@@ -971,7 +1007,14 @@ void SV_Init( void )
 	Cvar_RegisterVariable( &sv_voicequality );
 	Cvar_RegisterVariable( &sv_voice_singleplayer );
 	Cvar_RegisterVariable( &sv_trace_messages );
+	Cvar_RegisterVariable( &dbg_posiciones );
+	SV_VariantesInit();
+	SV_MarcadorInit();
 	Cvar_RegisterVariable( &sv_trace_pushers );
+	Cvar_RegisterVariable( &sv_trace_shots );
+	Cvar_RegisterVariable( &sv_ads_dispersion );
+	Cvar_RegisterVariable( &precision_realista );
+	Cvar_RegisterVariable( &precision_cadera );
 	Cvar_RegisterVariable( &sv_enttools_enable );
 	Cvar_RegisterVariable( &sv_enttools_maxfire );
 

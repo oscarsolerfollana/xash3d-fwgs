@@ -52,9 +52,10 @@ static CVAR_DEFINE_AUTO( rcon_address, "", FCVAR_PRIVILEGED, "remote control add
 CVAR_DEFINE_AUTO( cl_timeout, "60", 0, "connect timeout (in-seconds)" );
 CVAR_DEFINE_AUTO( cl_nopred, "0", FCVAR_USERINFO, "disable client movement prediction" );
 static CVAR_DEFINE_AUTO( cl_nodelta, "0", 0, "disable delta-compression for server messages" );
-static CVAR_DEFINE_AUTO( bunnyhop, "0", FCVAR_ARCHIVE, "auto bunnyhop: hold jump to re-jump on landing" );
-static CVAR_DEFINE_AUTO( aimbot, "0", FCVAR_ARCHIVE, "OGC-style aim: snap to the enemy nearest the crosshair, value = cone half-angle in degrees" );
-static CVAR_DEFINE_AUTO( aimbot_head, "0", FCVAR_ARCHIVE, "aimbot aim point: 0 = chest, 1 = head" );
+// not archived: the cheats start switched off on every launch
+static CVAR_DEFINE_AUTO( bunnyhop, "0", 0, "auto bunnyhop: hold jump to re-jump on landing" );
+static CVAR_DEFINE_AUTO( aimbot, "0", 0, "OGC-style aim while left shift or left alt is held: snap to the enemy nearest the crosshair, value = cone half-angle in degrees" );
+static CVAR_DEFINE_AUTO( aimbot_head, "0", 0, "aimbot aim point: 0 = chest, 1 = head" );
 
 /*
 ==============================================================================
@@ -62,19 +63,33 @@ CHEAT MENU
 
 podbot-style numbered text menu to toggle the local cheats.
 open with the "cheatmenu" command (meant to be bound to a key),
-pick options with the number keys
+pick options with the number keys. Only shows up with "sv_cheats 999",
+and while it's open it eats every key press
 ==============================================================================
 */
+#define CHEATMENU_SV_CHEATS 999
+
 static qboolean cheatmenu_active;
+
+static qboolean CL_CheatMenuAllowed( void )
+{
+	return Cvar_VariableInteger( "sv_cheats" ) == CHEATMENU_SV_CHEATS;
+}
 
 static void CL_CheatMenu_f( void )
 {
+	if( !cheatmenu_active && !CL_CheatMenuAllowed( ))
+		return;
+
 	cheatmenu_active = !cheatmenu_active;
 }
 
 static void CL_CheatMenuDraw( void )
 {
 	con_nprint_t line = { .time_to_live = 0.5f, .color = { 1.0f, 0.7f, 0.1f }};
+
+	if( cheatmenu_active && !CL_CheatMenuAllowed( ))
+		cheatmenu_active = false;
 
 	if( !cheatmenu_active )
 		return;
@@ -86,13 +101,25 @@ static void CL_CheatMenuDraw( void )
 	line.index = 4;
 	Con_NXPrintf( &line, "2. Aimbot: %s", aimbot.value <= 0.0f ? "apagado" : ( aimbot_head.value ? "CABEZA" : "PECHO" ));
 	line.index = 5;
+	Con_NXPrintf( &line, "3. Bunnyhop: %s", bunnyhop.value ? "ACTIVADO" : "apagado" );
+	line.index = 6;
 	Con_NXPrintf( &line, "0. Cerrar" );
 }
 
-qboolean CL_CheatMenuKey( int key, qboolean down )
+qboolean CL_CheatMenuKey( int key, const char *binding, qboolean down )
 {
-	if( !cheatmenu_active || !down || cls.key_dest != key_game )
+	if( !cheatmenu_active || cls.key_dest != key_game )
 		return false;
+
+	// releases go through, so a key held when the menu opened doesn't get stuck
+	if( !down )
+		return false;
+
+	if( !CL_CheatMenuAllowed( ))
+	{
+		cheatmenu_active = false;
+		return false;
+	}
 
 	switch( key )
 	{
@@ -100,7 +127,7 @@ qboolean CL_CheatMenuKey( int key, qboolean down )
 		if( Cvar_VariableValue( "wallhack" ) > 0.0f )
 			Cvar_Set( "wallhack", "0" );
 		else Cvar_Set( "wallhack", "0.8" );
-		return true;
+		break;
 	case '2':
 		// off -> pecho -> cabeza -> off
 		if( aimbot.value <= 0.0f )
@@ -117,14 +144,22 @@ qboolean CL_CheatMenuKey( int key, qboolean down )
 			Cvar_SetValue( "aimbot", 0.0f );
 			Cvar_SetValue( "aimbot_head", 0.0f );
 		}
-		return true;
+		break;
+	case '3':
+		Cvar_SetValue( "bunnyhop", bunnyhop.value ? 0.0f : 1.0f );
+		break;
 	case '0':
 	case K_ESCAPE:
 		cheatmenu_active = false;
-		return true;
+		break;
+	default:
+		// the key that opened the menu closes it too
+		if( binding && !Q_stricmp( binding, "cheatmenu" ))
+			cheatmenu_active = false;
+		break;
 	}
 
-	return false; // anything else keeps working as usual
+	return true; // nothing else sees a key while the menu is open
 }
 CVAR_DEFINE( cl_crosshair, "crosshair", "1", FCVAR_ARCHIVE, "show weapon chrosshair" );
 static CVAR_DEFINE_AUTO( cl_cmdbackup, "10", FCVAR_ARCHIVE, "how many additional history commands are sent" );
@@ -153,6 +188,7 @@ CVAR_DEFINE_AUTO( cl_lw, "1", FCVAR_ARCHIVE|FCVAR_USERINFO, "enable client weapo
 CVAR_DEFINE_AUTO( cl_charset, "utf-8", FCVAR_ARCHIVE, "1-byte charset to use (iconv style)" );
 CVAR_DEFINE_AUTO( cl_trace_consistency, "0", 0, "enable consistency info tracing (good for developers)" );
 CVAR_DEFINE_AUTO( cl_trace_stufftext, "0", 0, "enable stufftext (server-to-client console commands) tracing (good for developers)" );
+static CVAR_DEFINE_AUTO( dbg_mouseangles, "0", 0, "trace the cursor and view angles around CL_CreateMove (2 = every frame)" );
 CVAR_DEFINE_AUTO( cl_trace_messages, "0", FCVAR_CHEAT, "enable message names tracing (good for developers)" );
 CVAR_DEFINE_AUTO( cl_trace_events, "0", FCVAR_CHEAT, "enable events tracing (good for developers)" );
 static CVAR_DEFINE_AUTO( cl_nat, "0", 0, "show servers running under NAT" );
@@ -431,7 +467,8 @@ static void CL_CheckClientState( void )
 			if( cls.demorecording )
 				CL_Stop_f();
 
-			Cbuf_AddTextf( "record %s_%s\n", Q_timestamp( TIME_FILENAME ), clgame.mapname );
+			// in their own folder, so they don't pile up in the game directory
+			Cbuf_AddTextf( "record demos/%s_%s\n", Q_timestamp( TIME_FILENAME ), clgame.mapname );
 		}
 	}
 }
@@ -808,6 +845,29 @@ static void CL_UpdateClientData( void )
 
 	if( clgame.dllFuncs.pfnUpdateClientData( &cdat, cl.time ))
 	{
+		// custom: Firearms' client.dll takes the scope off when the button is let
+		// go, but the server keeps it on (for it the button toggles the zoom):
+		// for a frame the view had no zoom. Its zoom is the server's
+		// client.dll draws the scope and hides the weapon from its own value, so
+		// that is set too, with the message the server uses for it (SetFOV).
+		// The scope model comes from the server as well (CL_PredictedViewModel)
+		float servidor = cl.frames[cl.parsecountmod].clientdata.fov;
+		if( servidor > 0.0f && cdat.fov != servidor && !Q_strnicmp( GI->gamefolder, "firearms", 8 ))
+		{
+			int i;
+
+			for( i = 0; i < MAX_USER_MESSAGES && clgame.msg[i].name[0]; i++ )
+			{
+				if( !Q_stricmp( clgame.msg[i].name, "SetFOV" ) && clgame.msg[i].func )
+				{
+					byte fov = (byte)bound( 1.0f, servidor, 255.0f );
+					Con_DPrintf( "SetFOV %d: client.dll %.0f, server %.0f\n", fov, cdat.fov, servidor );
+					clgame.msg[i].func( clgame.msg[i].name, 1, &fov );
+					break;
+				}
+			}
+			cdat.fov = servidor;
+		}
 		// grab changes if successful
 		VectorCopy( cdat.viewangles, cl.viewangles );
 		cl.local.scr_fov = cdat.fov;
@@ -877,8 +937,36 @@ static void CL_CreateCmd( void )
 
 	qboolean  active = (( cls.signon == SIGNONS ) && !cl.paused && !cls.demoplayback );
 	Platform_PreCreateMove();
+#if XASH_WIN32
+	// mouse look trace: where the client.dll finds the cursor and what it makes of it
+	POINT dbg_cur = { 0 };
+	vec3_t dbg_before = Vec3( cl.viewangles );
+	if( dbg_mouseangles.value )
+		GetCursorPos( &dbg_cur );
+#endif
+	vec3_t ads_antes = Vec3( cl.viewangles ); // custom: cl_ads.c
 	clgame.dllFuncs.CL_CreateMove( host.frametime, cmd, active );
 	IN_EngineAppendMove( host.frametime, cmd, active );
+	CL_AdsCmd( cmd, ads_antes, active ); // custom: the right button aims, +bayoneta is the secondary attack
+	CL_MarcadorCmd( cmd, active ); // custom: the artillery marker in the hand takes the attack
+#if XASH_WIN32
+	if( dbg_mouseangles.value && active )
+	{
+		static vec3_t dbg_last;
+		POINT dbg_after = { 0 };
+		GetCursorPos( &dbg_after );
+		// anything that moved the view since our last CL_CreateMove (setangle, V_CalcRefdef, prediction)
+		if( !VectorCompare( dbg_last, dbg_before ))
+			Con_Printf( "[%.3f mouse] between frames %.5f,%.5f -> %.5f,%.5f\n",
+				host.realtime, dbg_last[PITCH], dbg_last[YAW], dbg_before[PITCH], dbg_before[YAW] );
+		VectorCopy( cl.viewangles, dbg_last );
+		if( dbg_cur.x != dbg_after.x || dbg_cur.y != dbg_after.y || !VectorCompare( dbg_before, cl.viewangles ) || dbg_mouseangles.value > 1 )
+			Con_Printf( "[%.3f mouse] cur %ld,%ld -> %ld,%ld ang %.5f,%.5f -> %.5f,%.5f cmd %.5f,%.5f fov %.2f\n",
+				host.realtime, dbg_cur.x, dbg_cur.y, dbg_after.x, dbg_after.y,
+				dbg_before[PITCH], dbg_before[YAW], cl.viewangles[PITCH], cl.viewangles[YAW],
+				cmd->viewangles[PITCH], cmd->viewangles[YAW], cl.local.scr_fov );
+	}
+#endif
 
 	// auto bunnyhop: while airborne (and not swimming), hide the held jump button
 	// from the game so PM_Jump sees a fresh press on the frame we land
@@ -905,10 +993,10 @@ static void CL_CreateCmd( void )
 		}
 	}
 
-	// OGC-style aim: pick the live enemy player closest to the crosshair inside
+	// OGC-style aim, only while left shift or left alt is held: pick the live enemy player closest to the crosshair inside
 	// the cone (cvar value = half-angle in degrees) and snap the view onto him.
 	// Team telling by CS player model; unknown models = everyone is a target
-	if( aimbot.value > 0.0f && active )
+	if( aimbot.value > 0.0f && active && FBitSet( Platform_GetKeyModifiers(), KeyModifier_LeftShift|KeyModifier_LeftAlt ))
 	{
 		static const char *t_models[] = { "terror", "leet", "arctic", "guerilla" };
 		static const char *ct_models[] = { "urban", "gsg9", "sas", "gign", "vip" };
@@ -1015,6 +1103,13 @@ static void CL_CreateCmd( void )
 		VectorCopy( angles, pcmd->cmd.viewangles );
 		VectorCopy( angles, cl.viewangles );
 		if( !cl.background ) pcmd->cmd.msec = 0;
+	}
+
+	// the mouse doesn't turn a demo's recorded view, it has its own use (cl_democam.c)
+	if( cls.demoplayback && !cl.background )
+	{
+		CL_DemoCamMouseFrame();
+		VectorCopy( angles, cl.viewangles );
 	}
 
 	// demo always have commands so don't overwrite them
@@ -1787,6 +1882,7 @@ CL_ClearState
 void CL_ClearState( void )
 {
 	CL_ClearResourceLists();
+	CL_HumoLimpiar(); // custom
 
 	for( int i = 0; i < MAX_CLIENTS; i++ )
 		COM_ClearCustomizationList( &cl.players[i].customdata, false );
@@ -1794,6 +1890,7 @@ void CL_ClearState( void )
 	S_StopAllSounds ( true );
 	CL_ClearEffects ();
 	CL_FreeEdicts ();
+	CL_DemoCamClearStats ();
 
 	PM_ClearPhysEnts( clgame.pmove );
 	NetAPI_CancelAllRequests();
@@ -3880,8 +3977,13 @@ static void CL_InitLocal( void )
 	Cvar_RegisterVariable( &aimbot );
 	Cvar_RegisterVariable( &aimbot_head );
 	CL_DemoCamInit();
+	CL_InitPuertas(); // custom: light through open doors
+	CL_InitHumo(); // custom: the artillery marker smoke
+	CL_InitAds(); // custom: aiming down the sights
+	CL_InitVaiven(); // custom: the sway of the aim
+	CL_InitMarcador(); // custom: the artillery marker in the hand
 	CL_DemoCtlInit();
-	Cmd_AddCommand( "cheatmenu", CL_CheatMenu_f, "toggle the numbered cheat menu (wallhack/aimbot)" );
+	Cmd_AddCommand( "cheatmenu", CL_CheatMenu_f, "toggle the numbered cheat menu (wallhack/aimbot/bunnyhop), needs sv_cheats 999" );
 	Cvar_RegisterVariable( &cl_idealpitchscale );
 	Cvar_RegisterVariable( &cl_solid_players );
 	Cvar_RegisterVariable( &cl_interp );
@@ -3894,6 +3996,7 @@ static void CL_InitLocal( void )
 	Cvar_RegisterVariable( &cl_trace_consistency );
 	Cvar_RegisterVariable( &cl_trace_stufftext );
 	Cvar_RegisterVariable( &cl_trace_messages );
+	Cvar_RegisterVariable( &dbg_mouseangles );
 	Cvar_RegisterVariable( &cl_trace_events );
 
 	// userinfo

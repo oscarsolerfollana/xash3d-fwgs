@@ -910,6 +910,11 @@ static void CL_RunUsercmd( local_state_t *from, local_state_t *to, usercmd_t *u,
 {
 	usercmd_t		cmd;
 
+	// a demo following someone else: the recorder's weapon mustn't fire on
+	// the inside (sounds, crosshair, ammo), client.dll only keeps up with it
+	if( CL_DemoCamOnOther( ))
+		runfuncs = false;
+
 	if( u->msec > 50 )
 	{
 		local_state_t	temp;
@@ -947,6 +952,7 @@ static void CL_RunUsercmd( local_state_t *from, local_state_t *to, usercmd_t *u,
 	}
 
 	clgame.dllFuncs.pfnPostRunCmd( from, to, &cmd, runfuncs, *time, random_seed );
+	CL_VariantesPrediccion( from, to ); // custom: rate of fire and reload of weapon variants
 
 	if( runfuncs )
 	{
@@ -993,6 +999,35 @@ CL_PredictMovement
 Sets cl.predicted.origin and cl.predicted.angles
 =================
 */
+/*
+=================
+CL_PredictedViewModel
+
+custom: Firearms' client.dll predicts the scope model (models/scp_*) wrong,
+the server toggles it with each press of the button while the prediction
+puts it up and down on its own: for a few frames the scope was seen without
+the zoom, or the zoom without the scope. The zoom is the server's
+(CL_UpdateClientData), so the swap between weapon and scope is too
+=================
+*/
+static int CL_PredictedViewModel( const frame_t *frame, int predicted )
+{
+	int server = frame->clientdata.viewmodel;
+
+	if( predicted == server || Q_strnicmp( GI->gamefolder, "firearms", 8 ))
+		return predicted;
+
+	for( int i = 0; i < 2; i++ )
+	{
+		model_t *mod = CL_ModelHandle( i ? server : predicted );
+
+		if( mod && !Q_strnicmp( mod->name, "models/scp_", 11 ))
+			return server;
+	}
+
+	return predicted;
+}
+
 void CL_PredictMovement( qboolean repredicting )
 {
 	runcmd_t		*to_cmd = NULL, *from_cmd;
@@ -1100,7 +1135,7 @@ void CL_PredictMovement( qboolean repredicting )
 		else cl.local.onground = -1;
 
 		if( !repredicting || !cl_lw.value )
-			cl.local.viewmodel = to->client.viewmodel;
+			cl.local.viewmodel = CL_PredictedViewModel( frame, to->client.viewmodel );
 		cl.local.repredicting = false;
 		cl.local.moving = false;
 		return;
@@ -1132,7 +1167,7 @@ void CL_PredictMovement( qboolean repredicting )
 	cl.local.waterlevel = to->client.waterlevel;
 	cl.local.usehull = to->playerstate.usehull;
 	if( !repredicting || !cl_lw.value )
-		cl.local.viewmodel = to->client.viewmodel;
+		cl.local.viewmodel = CL_PredictedViewModel( frame, to->client.viewmodel );
 
 	if( FBitSet( to->client.flags, FL_ONGROUND ))
 	{

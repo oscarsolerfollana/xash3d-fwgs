@@ -1935,6 +1935,51 @@ static qboolean SV_Notarget_f( sv_client_t *cl )
 SV_Kill_f
 ==================
 */
+/*
+==================
+SV_Ads_f
+
+custom: ads <0/1>, the client aims down the sights (cl_ads.c)
+==================
+*/
+static qboolean SV_Ads_f( sv_client_t *cl )
+{
+	cl->ads = Q_atoi( Cmd_Argv( 1 )) != 0;
+	return true;
+}
+
+/*
+==================
+SV_BrazoHerido
+
+custom: a bullet of tirador hit herido in an arm. herido's client is told
+(vaiven_brazo): its aim sways more until it dies (cl_vaiven.c). Only the
+bullets count, long traces from the eye of who shoots
+==================
+*/
+void SV_BrazoHerido( edict_t *tirador, edict_t *herido, const float *v1, const float *v2 )
+{
+	sv_client_t	*cl;
+	vec3_t		ojo;
+
+	if( !SV_IsValidEdict( herido ) || !FBitSet( herido->v.flags, FL_CLIENT ))
+		return;
+
+	VectorAdd( tirador->v.origin, tirador->v.view_ofs, ojo );
+	if( VectorDistance( v1, ojo ) > 4.0f || VectorDistance( v1, v2 ) < 256.0f )
+		return;
+
+	cl = SV_ClientFromEdict( herido, true );
+	if( Cvar_VariableValue( "variantes_debug" ) >= 2.0f )
+		Con_Printf( "[vaiven] %s: a bullet of %s in an arm\n", cl ? cl->name : "?", SV_GetString( tirador->v.netname ));
+
+	if( !cl || FBitSet( herido->v.flags, FL_FAKECLIENT ))
+		return;
+
+	MSG_BeginServerCmd( &cl->netchan.message, svc_stufftext );
+	MSG_WriteString( &cl->netchan.message, "vaiven_brazo\n" );
+}
+
 static qboolean SV_Kill_f( sv_client_t *cl )
 {
 	if( !SV_IsValidEdict( cl->edict ))
@@ -3015,6 +3060,7 @@ static const ucmd_t ucmds[] =
 { "dlfile", SV_DownloadFile_f },
 { "god", SV_Godmode_f },
 { "info", SV_ShowServerinfo_f },
+{ "ads", SV_Ads_f },
 { "kill", SV_Kill_f },
 { "new", SV_New_f },
 { "noclip", SV_Noclip_f },
@@ -3087,7 +3133,10 @@ static void SV_ExecuteClientCommand( sv_client_t *cl, const char *s )
 		}
 
 		// custom client commands
+		SV_VariantesComando( cl );
+		SV_MarcadorComando( true );
 		svgame.dllFuncs.pfnClientCommand( cl->edict );
+		SV_MarcadorComando( false );
 
 		if( fullupdate )
 		{

@@ -13,41 +13,51 @@ En la raíz solo hay código. El juego compilado (release) vive en `juego/`, que
 git ignora salvo los dos `userconfig.cfg`:
 
     juego/xash3d.exe, xash.dll, ref_gl.dll, menu.dll...      el motor
-    juego/valve, cstrike, cstrike13, gearbox, ns, firearms    los juegos
+    juego/valve, cstrike (CS 1.3), gearbox, ns, firearms    los juegos
 
 Se arranca con `juego/xash3d.exe -game <juego> -fullscreen`. Después de compilar,
 copiar los binarios nuevos a `juego/`.
+
+Con MinGW, `xash3d.exe` se enlaza con `-mwindows` (`game_launch/wscript`, desde el
+11/10): si no, sale como programa de consola y abre una ventana de cmd junto al
+juego.
 
 Los cuatro dlls de juego llevan el cap del bunnyhop quitado:
 
     juego/valve/dlls/hl.dll
     juego/valve/cl_dlls/client.dll
-    juego/cstrike13/dlls/mp.dll
-    juego/cstrike13/cl_dlls/client.dll
+    juego/cstrike/dlls/mp.dll
+    juego/cstrike/cl_dlls/client.dll
 
 En la carpeta oficial esos cuatro están sin tocar, byte a byte como los de Steam.
 
 Si alguna vez hay que rehacerlos: copiar el de la carpeta oficial y, desde
 `juego/`, pasarle `python ../patches/patch_bhopcap.py [valve|cs13|todo]`.
 
-## Trucos y bunnyhop, activos de serie
+## Trucos y bunnyhop, apagados al arrancar
 
-`juego/valve/userconfig.cfg` y `juego/cstrike13/userconfig.cfg` los encienden en
-cada arranque. Xash ejecuta ese fichero despues de `config.cfg`, asi que mandan
-siempre, aunque el config guardado diga otra cosa:
+`bunnyhop`, `wallhack`, `aimbot` y `aimbot_head` ya no se guardan en
+`config.cfg`: cada arranque empiezan a 0. Se encienden desde el menu de trucos o
+a mano por consola:
 
     bunnyhop 1       re-salto automatico (2 = ademas lo cuenta por consola)
     wallhack 0.8     mundo translucido (0.1 a 0.95; 0 lo apaga)
     aimbot 180       cono en grados, 180 = toda la pantalla
     aimbot_head 0    0 = al pecho, 1 = a la cabeza
-    sv_novis 1       imprescindible en multijugador: sin el, el servidor no te
-                     manda los jugadores fuera de tu PVS y el wallhack no los
-                     puede ensenar. Solo cuenta si el servidor es tuyo.
 
-La **enye** (`bind SEMICOLON cheatmenu`) abre el menu numerado: 1 wallhack,
-2 aimbot (apagado / pecho / cabeza), 0 cerrar.
+El aimbot solo apunta mientras se mantiene **Shift izquierdo** o **Alt
+izquierdo**. Los derechos no cuentan.
 
-Para otro juego basta con crear `juego/<juego>/userconfig.cfg`.
+El menu (`bind SEMICOLON cheatmenu`, la **enye**) solo se abre con
+`sv_cheats 999`. Si sv_cheats cambia, se cierra solo. En un servidor ajeno el
+cliente ve sv_cheats como 0 o 1, asi que alli no sale. Opciones: 1 wallhack,
+2 aimbot (apagado / pecho / cabeza), 3 bunnyhop, 0 o Esc cierra (la enye
+tambien). Mientras esta abierto se come todas las teclas: ni el 1 cambia de
+arma ni nada hasta cerrarlo.
+
+`juego/valve/userconfig.cfg` deja `sv_novis 1` (imprescindible en multijugador
+para que el wallhack ensene a los jugadores fuera de tu PVS; solo cuenta si el
+servidor es tuyo) y el bind de la enye.
 
 ## Demos con camara libre (como HLTV)
 
@@ -56,8 +66,57 @@ jugador, no solo ver lo que vio quien la grabo. No necesita nada del client.dll,
 asi que vale para CS 1.3:
 
     clic izquierdo / derecho   siguiente / anterior jugador
-    espacio                    vista grabada -> primera persona -> tercera
+    espacio                    primera persona -> tercera persona -> vista libre
+    rueda                      en primera persona: zoom hacia el centro
+    raton / rueda              en tercera persona: girar la camara / acercarla
+    vista libre                raton: mirar; WASD: moverse; E / Ctrl: subir / bajar;
+                               Mayus: mas rapido; clic: volver a seguir a un jugador
     democam_next, democam_prev, democam_mode   lo mismo por consola
+    democam_zoom <factor>      zoom por consola (en primera persona)
+
+La demo empieza en primera persona sobre quien la grabo, que es la vista grabada
+tal cual; los clics le incluyen al recorrer los jugadores. La tercera persona
+sale detras del jugador y luego se gira con el raton (vista libre). El raton no
+mueve nunca la vista grabada: antes el client.dll la giraba un fotograma y la
+demo la devolvia a su sitio, se veia como un amago.
+
+**Vista libre.** El tercer modo vuela por todo el mapa como un espectador,
+atravesando paredes. Empieza donde estaba la vista y se mueve con las teclas que
+tenga asignadas el movimiento del jugador (`+forward`, `+back`, `+moveleft`,
+`+moveright`; `+use` o `+moveup` sube, `+duck` o `+movedown` baja, `+speed` va
+x3), hacia donde se mira, a 400 unidades por segundo en tiempo real: tambien con
+la demo en pausa o a camara lenta. No hay mira ni arma en mano. Un clic vuelve a
+primera persona sobre el siguiente jugador.
+
+El client.dll no lee el raton mientras se ve una demo (el de CS 1.3 lo lee con
+la API de Windows y solo al mover al jugador), asi que lo lee el motor: en cada
+fotograma mira cuanto se ha movido desde el centro de la ventana y lo vuelve a
+centrar. Asi gira la camara de tercera persona y la vista libre (con
+`sensitivity`, `m_yaw` y `m_pitch`). Al ver una demo la rueda es solo de la
+camara (no saca el menu de armas) y las teclas de chat (`messagemode`,
+`messagemode2`) no hacen nada.
+
+**Zoom en primera persona.** La rueda estrecha el campo de vision hacia el
+centro de la pantalla (hasta x8, pasos de x1,25); con zoom no se dibuja el arma
+en mano, como con una mira telescopica. Al cambiar de jugador o de modo se quita.
+
+**Vida, chaleco, balas y dinero del jugador seguido.** El juego solo se los
+manda a su dueno, asi que una demo normal solo tiene los de quien grabo. El
+servidor de custom-xash copia los mensajes `Health`, `Battery`, `ArmorType`,
+`Money`, `CurWeapon` y `AmmoX` de cada jugador a los clientes con
+`cl_demostats 1` (por defecto, va en el userinfo), en un mensaje propio del
+motor, `XDStats` (jugador, que mensaje era y sus bytes), y cada 2 s vuelve a
+mandarlos todos, de jugador en jugador, para las demos que empiezan tarde o
+saltan atras. `XDStats` se registra al arrancar el mapa, para que este en la
+cabecera de la demo. Al seguir a alguien, el client.dll recibe los suyos en vez
+de los del que grabo y su propio HUD los pinta; los del que grabo se guardan y
+se le devuelven al volver a su vista. Al empezar a grabar, la demo recibe los
+ultimos de todos y la lista de armas (`WeaponList`, que CS solo manda al entrar
+y sin la cual no pinta las balas). Solo con servidor custom-xash; las demos
+antiguas siguen mostrando los del que grabo.
+
+El arma en mano es la diestra: CS 1.3 trae cada una dos veces, `v_ak47.mdl`
+(zurda) y `v_ak47_r.mdl` (diestra), y usa la `_r`.
 
 Para que la demo tenga a todos hay que grabarla con `sv_novis 1` en un servidor
 propio: si no, el servidor solo manda los jugadores cercanos. Ademas
@@ -89,15 +148,16 @@ Cosas que ya traia Xash y aqui solo se usan: `record`/`playdemo`,
 `cl_autorecord` y `sv_novis`.
 
 Desde el 07/10 `sv_novis` y `cl_autorecord` valen 1 por defecto en el motor: toda
-partida multijugador, de cualquier mod, se graba sola en la carpeta del mod con
-fecha y mapa en el nombre y con todos los jugadores dentro. Las de un jugador
+partida multijugador, de cualquier mod, se graba sola en la subcarpeta `demos/`
+del mod (desde el 11/10; antes, en la carpeta del mod) con fecha y mapa en el nombre y con todos los jugadores dentro. Las de un jugador
 (maxplayers 1) y los mapas de fondo del menu no se graban. Para no grabar una
 partida, `cl_autorecord 0` en la consola antes de cargar el mapa.
 
 `juego/cs_assault_grabando.bat` juega cs_assault con bots y graba sola la
 partida (`cl_autorecord 1`), y `juego/ver_demo.bat` reproduce la ultima. Las
 demos de `cl_autorecord` llevan puntos en el nombre: a `playdemo` hay que
-pasarle el nombre con `.dem`, si no corta por el primer punto.
+pasarle el nombre con `.dem`, si no corta por el primer punto, y con la carpeta:
+`playdemo demos/2026-10-11_03.20.11_cs_militia_flood.dem`.
 
 Grabar cuesta poco: unos 20-25 MB por hora y casi nada de CPU. Lo delicado es
 que la demo solo se cierra bien al desconectar o salir del juego; si el juego se
@@ -109,10 +169,11 @@ entries").
 `engine/client/cl_democtl.c`, junto a la camara de demo:
 
     P                pausa
-    flecha derecha   avance rapido: x2, x4, x8 (rebobinando, vuelve a x1)
+    flecha derecha   avance rapido: x2, x4, x8, x16 (rebobinando, vuelve a x1)
     flecha izquierda rebobinar: x1, x2, x4, x8, x16
     flecha arriba    hacia x1: desde camara lenta sube un paso; desde
-                     avance rapido o rebobinado, directo a x1
+                     avance rapido o rebobinado, directo a x1; nunca
+                     pasa de x1
     flecha abajo     mas lento, hasta x0.1 (rebobinando: rebobina mas lento)
     RePag / AvPag    1 minuto adelante / atras
     Inicio           al principio
@@ -169,7 +230,11 @@ Medido a x0.1 corriendo: el paso de la camara cambia de forma gradual (0,35 ->
 
 **Muertes.** Cada `DeathMsg` de la demo (en CS 1.3: asesino, victima y cabeza, un
 byte cada uno, y el nombre del arma) se guarda con su momento, y las ultimas se
-listan arriba a la derecha, con el color de cada equipo, durante 6 s. Al ir con
+listan arriba a la derecha durante 6 s, como las dibuja CS: asesino, icono del
+arma y de tiro a la cabeza (`d_<arma>` y `d_headshot` de `sprites/hud.txt`, en el
+naranja del HUD; verde si es del mismo equipo), victima, los nombres con el color
+de su equipo y la calavera si no lo mato nadie. Hasta 4 lineas, debajo de las
+lineas de estado de los controles. Al ir con
 su momento salen tambien rebobinando, saltando y con el radar a pantalla
 completa. El client.dll ya no recibe `DeathMsg` al ver demos, para no repetirlas.
 

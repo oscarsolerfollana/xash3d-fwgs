@@ -2636,6 +2636,10 @@ static qboolean Mod_SearchForTextureReplacement( char *out, size_t size, const c
 
 	for( int i = 0; i < ARRAYSIZE( subdirs ); i++ )
 	{
+		// custom: a .dds first (compressed: a quarter of the disk and of the video memory of a .tga)
+		if( Q_snprintf( out, size, "materials/%s/%s%s.dds", subdirs[i], texname, type ) >= 0 && g_fsapi.FileExists( out, false ))
+			return true;
+
 		if( Q_snprintf( out, size, "materials/%s/%s%s.tga", subdirs[i], texname, type ) < 0 )
 			continue; // truncated name
 
@@ -2810,6 +2814,7 @@ static void Mod_LoadTextureData( model_t *mod, dbspmodel_t *bmod, int textureInd
 	char texpath[MAX_VA_STRING];
 	char safemtname[16]; // only for external textures
 	qboolean load_external = false;
+	int original = 0; // custom: the texture of the map under the HD one, for r_texturas_hd
 
 	// don't load texture data on dedicated server, as there is no renderer.
 	// but count the wadusage for automatic precache
@@ -2859,7 +2864,8 @@ static void Mod_LoadTextureData( model_t *mod, dbspmodel_t *bmod, int textureInd
 	}
 
 	// Try WAD texture (force while r_wadtextures is 1)
-	if( !texture->gl_texturenum && (( r_wadtextures.value && world.wadcount > 0 ) || mipTex.offsets[0] <= 0 ))
+	// custom: also under an HD one, kept apart to compare them in game (r_texturas_hd)
+	if(( !texture->gl_texturenum || load_external ) && (( r_wadtextures.value && world.wadcount > 0 ) || mipTex.offsets[0] <= 0 ))
 	{
 		rgbdata_t *pic = NULL;
 		int wad_index = Mod_LoadTextureFromWadList( world.wadlist, world.wadcount, mipTex.name, Host_IsDedicated() ? NULL : &pic, texpath, sizeof( texpath ));
@@ -2870,7 +2876,7 @@ static void Mod_LoadTextureData( model_t *mod, dbspmodel_t *bmod, int textureInd
 			if( !Host_IsDedicated( ) && pic != NULL )
 			{
 				Image_SetForceFlags( texture_force_flags );
-				texture->gl_texturenum = ref.dllFuncs.GL_LoadTextureFromBuffer( texpath, pic, txFlags, false );
+				original = ref.dllFuncs.GL_LoadTextureFromBuffer( texpath, pic, txFlags, false );
 				FS_FreeImage( pic );
 			}
 #endif // !XASH_DEDICATED
@@ -2884,15 +2890,23 @@ static void Mod_LoadTextureData( model_t *mod, dbspmodel_t *bmod, int textureInd
 		return;
 
 	// WAD failed, so use internal texture (if present)
-	if( mipTex.offsets[0] > 0 && texture->gl_texturenum == 0 )
+	if( mipTex.offsets[0] > 0 && original == 0 && ( texture->gl_texturenum == 0 || load_external ))
 	{
 		string texName;
 		const size_t size = Mod_CalculateMipTexSize( &mipTex, usesCustomPalette );
 
 		Q_snprintf( texName, sizeof( texName ), "#%s:%s.mip", loadstat.name, mipTex.name );
 		Image_SetForceFlags( texture_force_flags | IL_HOST_ENDIAN );
-		texture->gl_texturenum = ref.dllFuncs.GL_LoadTexture( texName, mipRaw, size, txFlags );
+		original = ref.dllFuncs.GL_LoadTexture( texName, mipRaw, size, txFlags );
 	}
+
+	if( !texture->gl_texturenum )
+	{
+		texture->gl_texturenum = original;
+		original = 0;
+	}
+	texture->unused[0] = original; // custom: the other one, for r_texturas_hd
+	texture->unused[1] = 0;	// showing the original now
 
 	// If texture is completely missed:
 	if( texture->gl_texturenum == 0 )
@@ -2949,6 +2963,50 @@ static void Mod_LoadTextureData( model_t *mod, dbspmodel_t *bmod, int textureInd
 		}
 	}
 #endif // !XASH_DEDICATED
+}
+
+/*
+==================
+Mod_TexturasHD
+
+custom: r_texturas_hd 0 puts the textures of the map back instead of the HD ones of materials/,
+in game, to compare them (F8). The submodels share the textures of the world
+==================
+*/
+void Mod_TexturasHD( model_t *mod )
+{
+	static float antes = -1.0f;
+	qboolean original = r_texturas_hd.value == 0.0f;
+
+	// F8 compares the game as it was: the post processing goes with the textures (not when the game starts)
+	if( antes != r_texturas_hd.value )
+	{
+		if( antes >= 0.0f )
+		{
+			Cvar_SetValue( "r_post", original ? 0.0f : 1.0f );
+			Cvar_SetValue( "r_bump", original ? 0.0f : 1.0f );	// the relief and the reflections too
+			Cvar_SetValue( "r_bloom", original ? 0.0f : 1.0f );	// and the old bloom, which comes in when the post processing is off
+			Cvar_SetValue( "r_agua", original ? 0.0f : 1.0f );	// and the water (gl_agua.c)
+			Cvar_SetValue( "cl_luz_puertas", original ? 0.0f : 1.0f );	// and the light through open doors (cl_puertas.c)
+		}
+		antes = r_texturas_hd.value;
+	}
+
+	// each texture knows what it shows (a new map comes with the HD ones): checked every frame, few
+	if( !mod || mod->type != mod_brush || !mod->textures )
+		return;
+
+	for( int i = 0; i < mod->numtextures; i++ )
+	{
+		texture_t *t = mod->textures[i];
+
+		if( !t || !t->unused[0] || ( t->unused[1] != 0 ) == original )
+			continue;
+		int otra = t->unused[0];
+		t->unused[0] = t->gl_texturenum;
+		t->gl_texturenum = otra;
+		t->unused[1] = original;
+	}
 }
 
 static void Mod_LoadTexture( model_t *mod, dbspmodel_t *bmod, int textureIndex )

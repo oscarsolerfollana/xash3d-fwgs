@@ -772,6 +772,10 @@ void SV_BroadcastPrintf( struct sv_client_s *ignore, const char *fmt, ... ) FORM
 void CL_ClearStaticEntities( void );
 qboolean S_StreamGetCurrentState( char *currentTrack, size_t currentTrackSize, char *loopTrack, size_t loopTrackSize, int *position );
 void CL_ServerCommand( qboolean reliable, const char *fmt, ... ) FORMAT_CHECK( 2 );
+void CL_VaivenComando( const char *s ); // custom: cl_vaiven.c, what goes to the server
+const float *COM_AdsBala( int lado, const void *quien, double hora, const vec3_t ojo, const vec3_t angulos, float k, float moa, const float *v1, const float *v2, vec3_t fin );	// custom: ads_bala.c
+float COM_ArmaReal( const char *modelo, float *moa );	// custom: armas_reales.c
+void COM_ArmasRealesRecargar( void );
 void CL_UpdateInfo( const char *key, const char *value );
 void CL_HudMessage( const char *pMessage );
 const char *CL_MsgInfo( int cmd );

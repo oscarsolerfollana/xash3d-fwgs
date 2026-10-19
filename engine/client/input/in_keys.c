@@ -742,8 +742,8 @@ void GAME_EXPORT Key_Event( int key, int down )
 	const char *kb = keys[key].binding;
 	keys[key].down = down ? true : false;
 
-	// the engine cheat menu eats its option keys while it's open
-	if( CL_CheatMenuKey( key, down ))
+	// the engine cheat menu eats every key press while it's open
+	if( CL_CheatMenuKey( key, kb, down ))
 		return;
 
 	// demo playback: the mouse buttons and space move the camera between players
@@ -762,6 +762,10 @@ void GAME_EXPORT Key_Event( int key, int down )
 		return;
 	}
 #endif
+	// custom: Q, W and E place the weapon with ads_editar (cl_ads.c)
+	if( cls.key_dest == key_game && CL_AdsTecla( key, down ))
+		return;
+
 	// distribute the key down event to the apropriate handler
 	if( cls.key_dest == key_game && ( down || keys[key].gamedown ))
 	{

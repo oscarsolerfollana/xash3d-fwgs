@@ -82,9 +82,9 @@ BRUSH MODELS
 #define MAX_MAP_TEXINFO    MAX_MAP_FACES  // in theory each face may have personal texinfo
 #define MAX_MAP_EDGES      0x100000       // can be increased but not needed
 #define MAX_MAP_SURFEDGES  0x200000       // can be increased but not needed
-#define MAX_MAP_TEXTURES   2048           // can be increased but not needed
-#define MAX_MAP_MIPTEX     0x2000000      // 32 Mb internal textures data
-#define MAX_MAP_LIGHTING   0x2000000      // 32 Mb lightmap raw data (can contain deluxemaps)
+#define MAX_MAP_TEXTURES   8192           // custom: was 2048
+#define MAX_MAP_MIPTEX     0x8000000      // custom: 128 Mb internal textures data (was 32)
+#define MAX_MAP_LIGHTING   0x8000000      // custom: 128 Mb lightmap raw data (was 32)
 #define MAX_MAP_VISIBILITY 0x1000000      // 16 Mb visdata
 #define MAX_MAP_FACEINFO   8192           // can be increased but not needed
 

@@ -139,6 +139,15 @@ static qboolean Mod_SpriteSearchForTextureReplacement( char *out, size_t size, c
 		return false;
 	}
 
+	// custom: a .dds first (compressed: a quarter of the disk and of the video memory of a .tga)
+	if( ret > 4 && !Q_stricmp( out + ret - 4, ".tga" ))
+	{
+		Q_strncpy( out + ret - 4, ".dds", size - ( ret - 4 ));
+		if( FS_FileExists( out, false ))
+			return true;
+		Q_strncpy( out + ret - 4, ".tga", size - ( ret - 4 ));
+	}
+
 	if( FS_FileExists( out, false ))
 		return true;
 

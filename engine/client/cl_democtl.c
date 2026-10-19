@@ -63,7 +63,7 @@ enum
 	RADAR_MODES
 };
 
-static const float democtl_speeds[] = { 0.1f, 0.25f, 0.5f, 1.0f, 2.0f, 4.0f, 8.0f };
+static const float democtl_speeds[] = { 0.1f, 0.25f, 0.5f, 1.0f, 2.0f, 4.0f, 8.0f, 16.0f };
 #define DEMOCTL_NORMAL_SPEED 3
 
 static const float democtl_rewind_speeds[] = { 1.0f, 2.0f, 4.0f, 8.0f, 16.0f };
@@ -648,6 +648,21 @@ qboolean CL_DemoCtlSkipUserMsg( const char *name )
 	return false;
 }
 
+/*
+=================
+CL_DemoCtlNow
+
+the moment shown: where the rewind got to, or where the demo is read
+=================
+*/
+float CL_DemoCtlNow( void )
+{
+	if( CL_DemoCtlRewinding( ))
+		return democtl.rewind_pos;
+
+	return CL_DemoGetTime();
+}
+
 static void CL_DemoCtlSetSpeed( int speed )
 {
 	democtl.speed = bound( 0, speed, (int)ARRAYSIZE( democtl_speeds ) - 1 );
@@ -810,8 +825,10 @@ static void CL_DemoCtlForward( void )
 	if( !CL_DemoCtlRewinding( ))
 		return;
 
-	// the demo carries on from where the rewind got to
+	// the demo carries on from where the rewind got to, also when it had
+	// stopped at the start
 	democtl.rewind = DEMOCTL_NOT_REWINDING;
+	democtl.paused = false;
 	CL_DemoCtlSeek( democtl.rewind_pos );
 }
 
@@ -856,7 +873,8 @@ static void CL_DemoCtlTowardsNormal( void )
 		CL_DemoCtlForward();
 		CL_DemoCtlSetSpeed( DEMOCTL_NORMAL_SPEED );
 	}
-	else CL_DemoCtlSetSpeed( democtl.speed + 1 );
+	else if( democtl.speed < DEMOCTL_NORMAL_SPEED )
+		CL_DemoCtlSetSpeed( democtl.speed + 1 );
 }
 
 // down: slower
@@ -1256,30 +1274,52 @@ static void CL_DemoCtlRadarYaw( float yaw, float *du, float *dv )
 
 /*
 =================
-CL_DemoCtlTeamColor
+CL_DemoCtlTeam
 
-Counter-Strike tells the teams apart by the player model
+Counter-Strike tells the teams apart by the player model: 1 T, 2 CT, 0 unknown
 =================
 */
-static void CL_DemoCtlTeamColor( int index, rgba_t color )
+static int CL_DemoCtlTeam( int index )
 {
 	static const char *ct_models[] = { "urban", "gsg9", "sas", "gign", "vip" };
 	static const char *t_models[] = { "terror", "leet", "arctic", "guerilla" };
-	const char *model = cl.players[index - 1].model;
+	const char *model;
 	int i;
 
-	MakeRGBA( color, 230, 230, 230, 255 );
+	if( index < 1 || index > cl.maxclients )
+		return 0;
+
+	model = cl.players[index - 1].model;
 
 	for( i = 0; i < ARRAYSIZE( ct_models ); i++ )
 	{
 		if( !Q_stricmp( model, ct_models[i] ))
-			MakeRGBA( color, 90, 160, 255, 255 );
+			return 2;
 	}
 
 	for( i = 0; i < ARRAYSIZE( t_models ); i++ )
 	{
 		if( !Q_stricmp( model, t_models[i] ))
-			MakeRGBA( color, 255, 90, 60, 255 );
+			return 1;
+	}
+
+	return 0;
+}
+
+static qboolean CL_DemoCtlSameTeam( int a, int b )
+{
+	int team = CL_DemoCtlTeam( a );
+
+	return team != 0 && team == CL_DemoCtlTeam( b );
+}
+
+static void CL_DemoCtlTeamColor( int index, rgba_t color )
+{
+	switch( CL_DemoCtlTeam( index ))
+	{
+	case 1: MakeRGBA( color, 255, 64, 64, 255 ); break; // CS's red and blue
+	case 2: MakeRGBA( color, 153, 204, 255, 255 ); break;
+	default: MakeRGBA( color, 230, 230, 230, 255 ); break;
 	}
 }
 
@@ -1619,7 +1659,7 @@ screen. CS's own list doesn't get the message, it would show them twice.
 */
 #define DEMOCTL_MAX_KILLS  1024
 #define DEMOCTL_KILL_SHOW  6.0f  // seconds a kill stays listed
-#define DEMOCTL_KILL_LINES 5
+#define DEMOCTL_KILL_LINES 4
 
 typedef struct
 {
@@ -1701,14 +1741,28 @@ static const char *CL_DemoCtlPlayerName( int index )
 	return cl.players[index - 1].name;
 }
 
+/*
+=================
+CL_DemoCtlDrawKills
+
+the way CS draws them: in the top right corner, killer, the weapon's icon,
+the headshot one and the victim, the names in their team's color. The
+skull when nobody killed him. Laid out in the HUD's units, like the icons
+=================
+*/
 static void CL_DemoCtlDrawKills( float now )
 {
 	const democtl_kill_t *show[DEMOCTL_KILL_LINES];
-	int i, numshow = 0, charheight, y;
-	rgba_t grey = { 200, 200, 200, 255 };
+	float scale_x = clgame.scrInfo.iWidth > 0 ? refState.width / (float)clgame.scrInfo.iWidth : 1.0f;
+	float scale_y = clgame.scrInfo.iHeight > 0 ? refState.height / (float)clgame.scrInfo.iHeight : 1.0f;
+	int i, numshow = 0, charheight, top;
 
 	if( Q_stricmp( dk.demo, cls.demoname ))
 		return;
+
+	// where CS has them, unless the status lines of the demo controls are there
+	Con_DrawStringLen( "A", NULL, &charheight );
+	top = Q_max( 32 * clgame.scrInfo.iHeight / 480, charheight * 6 / scale_y );
 
 	// the newest ones up to now
 	for( i = dk.numkills - 1; i >= 0 && numshow < DEMOCTL_KILL_LINES; i-- )
@@ -1724,49 +1778,54 @@ static void CL_DemoCtlDrawKills( float now )
 		show[numshow++] = k;
 	}
 
-	Con_DrawStringLen( "A", NULL, &charheight );
-
-	// below the status lines of the demo controls, oldest first
-	y = charheight * 6;
-
-	for( i = numshow - 1; i >= 0; i--, y += charheight + 2 )
+	// oldest at the top
+	for( i = 0; i < numshow; i++ )
 	{
-		const democtl_kill_t *k = show[i];
+		const democtl_kill_t *k = show[numshow - 1 - i];
+		qboolean suicide = k->killer == 0 || k->killer == k->victim;
 		const char *victim = CL_DemoCtlPlayerName( k->victim );
-		char weapon[48];
-		rgba_t kcolor, vcolor;
-		int w, x;
+		const char *killer = CL_DemoCtlPlayerName( k->killer );
+		char icon[48];
+		int y = top + 2 + 20 * i;
+		int x, w, iconw, headw = 0;
+		rgba_t color;
 
-		CL_DemoCtlTeamColor( k->victim, vcolor );
+		Q_snprintf( icon, sizeof( icon ), "d_%s", k->weapon );
+		if( !CL_DrawHudIcon( icon, 0, 0, 0, 0, 0, false ))
+			Q_strncpy( icon, "d_skull", sizeof( icon ));
 
-		// killed by the world, or by himself
-		if( k->killer == 0 || k->killer == k->victim || !Q_stricmp( k->weapon, "world" ))
+		iconw = CL_DrawHudIcon( icon, 0, 0, 0, 0, 0, false );
+
+		if( k->headshot )
+			headw = CL_DrawHudIcon( "d_headshot", 0, 0, 0, 0, 0, false );
+
+		Con_DrawStringLen( victim, &w, NULL );
+		x = clgame.scrInfo.iWidth - w / scale_x - iconw - headw;
+
+		if( !suicide )
 		{
-			const char *text = va( "%s ha muerto", victim );
+			Con_DrawStringLen( killer, &w, NULL );
+			x -= 5 + w / scale_x;
 
-			Con_DrawStringLen( text, &w, NULL );
-			x = refState.width - w - 8;
-			CL_DemoCtlFill( x - 4, y - 1, w + 8, charheight + 2, (rgba_t){ 0, 0, 0, 120 });
-			Con_DrawString( x, y, text, vcolor );
-			continue;
+			CL_DemoCtlTeamColor( k->killer, color );
+			Con_DrawString( x * scale_x, y * scale_y, killer, color );
+			x += 5 + w / scale_x;
 		}
 
-		const char *killer = CL_DemoCtlPlayerName( k->killer );
-		int wk, ww, wv;
+		// a team kill in green, like CS
+		if( !suicide && CL_DemoCtlSameTeam( k->killer, k->victim ))
+			CL_DrawHudIcon( icon, x, y, 10, 240, 10, true );
+		else CL_DrawHudIcon( icon, x, y, 255, 160, 0, true );
+		x += iconw;
 
-		CL_DemoCtlTeamColor( k->killer, kcolor );
-		Q_snprintf( weapon, sizeof( weapon ), k->headshot ? "  [%s, cabeza]  " : "  [%s]  ", k->weapon );
+		if( headw )
+		{
+			CL_DrawHudIcon( "d_headshot", x, y, 255, 160, 0, true );
+			x += headw;
+		}
 
-		Con_DrawStringLen( killer, &wk, NULL );
-		Con_DrawStringLen( weapon, &ww, NULL );
-		Con_DrawStringLen( victim, &wv, NULL );
-		w = wk + ww + wv;
-		x = refState.width - w - 8;
-
-		CL_DemoCtlFill( x - 4, y - 1, w + 8, charheight + 2, (rgba_t){ 0, 0, 0, 120 });
-		Con_DrawString( x, y, killer, kcolor );
-		Con_DrawString( x + wk, y, weapon, grey );
-		Con_DrawString( x + wk + ww, y, victim, vcolor );
+		CL_DemoCtlTeamColor( k->victim, color );
+		Con_DrawString( x * scale_x, y * scale_y, victim, color );
 	}
 }
 

@@ -90,6 +90,13 @@ void Sys_InitLog( void )
 		COM_DefaultExtension( s_ld.log_path, ".log", sizeof( s_ld.log_path ));
 		s_ld.log_active = true;
 	}
+	else if( !Host_IsDedicated( ) && !Sys_CheckParm( "-nolog" ))
+	{
+		// custom: games always leave what happened, for the crashes (they are often started from the menu,
+		// without -log); apart from engine.log, the one of the tests
+		Q_strncpy( s_ld.log_path, "partida.log", sizeof( s_ld.log_path ));
+		s_ld.log_active = true;
+	}
 
 	s_ld.log_time = Sys_CheckParm( "-logtime" );
 

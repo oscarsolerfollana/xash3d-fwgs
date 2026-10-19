@@ -1008,6 +1008,7 @@ void Cmd_ForwardToServer( void )
 		Q_strncat( str, Cmd_Args( ), sizeof( str ));
 	else Q_strncat( str, "\n", sizeof( str ));
 
+	CL_VaivenComando( str ); // custom: the skills of the class
 	MSG_WriteString( &cls.netchan.message, str );
 }
 #endif // XASH_DEDICATED

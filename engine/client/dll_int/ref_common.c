@@ -489,6 +489,7 @@ static void CL_FillTriAPI( triangleapi_t *dst )
 	dst->Vertex3fv         = ref.dllFuncs.Vertex3fv;
 
 	ref.dllFuncs.R_FillTriAPI( dst );
+	CL_AdsTriAPI( dst );	// custom: the impact smoke of Firearms left out with some weapons (cl_ads.c)
 }
 
 static void R_CreateBuiltinTextures( void )

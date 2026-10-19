@@ -540,6 +540,9 @@ static void CL_WriteDemoPlayers( void )
 		MSG_WriteBytes( &buf, player->hashedcdkey, sizeof( player->hashedcdkey ));
 	}
 
+	// and everyone's health, armor, ammo and money
+	CL_DemoCamWriteStats( &buf );
+
 	CL_WriteDemoMessage( false, 0, &buf );
 }
 
@@ -1163,6 +1166,8 @@ qboolean CL_DemoReadMessage( byte *buffer, size_t *length )
 			FS_Read( cls.demofile, &size, sizeof( int ));
 			userbuf = Mem_Malloc( cls.mempool, size );
 			FS_Read( cls.demofile, userbuf, size );
+
+			CL_DemoCamDemoBuffer( userbuf, size );
 
 			if( clgame.hInstance )
 				clgame.dllFuncs.pfnDemo_ReadBuffer( size, userbuf );

@@ -218,6 +218,10 @@ static qboolean CL_FireEvent( event_info_t *ei, int slot )
 
 			CL_DemoCamEvent( name, &ei->args );
 
+			// custom: the artillery marker smoke, made here
+			if( CL_HumoEvento( name, &ei->args ))
+				return true;
+
 			if( cl_trace_events.value )
 			{
 				Con_Printf( "^3EVENT %s AT %.2f %.2f %.2f\n"    // event name
@@ -231,7 +235,9 @@ static qboolean CL_FireEvent( event_info_t *ei, int slot )
 			if( ev->func )
 			{
 				CL_DescribeEvent( ei, slot );
+				CL_AdsEvento( &ei->args );	// custom: its shots while aiming (cl_ads.c)
 				ev->func( &ei->args );
+				CL_AdsEvento( NULL );
 				return true;
 			}
 

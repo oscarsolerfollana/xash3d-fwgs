@@ -789,7 +789,7 @@ void CL_SetupNetchanForProtocol( connprotocol_t proto );
 qboolean CL_PrecacheResources( void );
 void CL_SetupOverviewParams( void );
 void CL_UpdateFrameLerp( void );
-qboolean CL_CheatMenuKey( int key, qboolean down );
+qboolean CL_CheatMenuKey( int key, const char *binding, qboolean down );
 int CL_IsDevOverviewMode( void );
 void CL_SignonReply( connprotocol_t proto );
 void CL_ClearState( void );
@@ -860,6 +860,15 @@ qboolean CL_LoadProgs( const char *name );
 void CL_LinkUserMessage( char *pszName, const int svc_num, int iSize );
 void CL_DrawHUD( int state );
 void CL_InitEdicts( int maxclients );
+
+//
+// cl_variantes.c
+//
+int CL_VariantesViewModel( int index );
+float CL_VariantesPrecision( int ent );
+float CL_VariantesRetroceso( int ent, float *lateral );
+const char *CL_VariantesSonido( int ent, const char *sample );
+void CL_VariantesPrediccion( const local_state_t *from, local_state_t *to );
 void CL_FreeEdicts( void );
 void CL_ClearWorld( void );
 void CL_DrawCenterPrint( void );
@@ -871,6 +880,7 @@ void NetAPI_CancelAllRequests( void );
 model_t *CL_LoadClientSprite( const char *filename );
 model_t *CL_LoadModel( const char *modelname, int *index );
 HSPRITE pfnSPR_LoadExt( const char *szPicName, uint texFlags );
+int CL_DrawHudIcon( const char *name, int x, int y, int r, int g, int b, qboolean draw );
 void SPR_AdjustSize( float *x, float *y, float *w, float *h );
 int CL_GetScreenInfo( SCREENINFO *pscrinfo );
 pmtrace_t *PM_CL_TraceLine( float *start, float *end, int flags, int usehull, int ignore_pe );
@@ -924,6 +934,16 @@ void CL_DemoCamInit( void );
 void CL_DemoCamApply( ref_params_t *fd );
 void CL_DemoCamEvent( const char *name, const event_args_t *args );
 int CL_DemoCamTarget( void );
+void CL_DemoCamMouseFrame( void );
+qboolean CL_DemoCamFree( void );
+qboolean CL_DemoCamOnOther( void );
+int CL_DemoCamListener( int viewentity );
+qboolean CL_DemoCamSkipSound( int entnum, int channel );
+void CL_DemoCamZoom( float *fov_x, float *fov_y );
+qboolean CL_DemoCamUserMsg( const char *name, const byte *buf, int size );
+void CL_DemoCamWriteStats( sizebuf_t *buf );
+void CL_DemoCamClearStats( void );
+void CL_DemoCamDemoBuffer( byte *buf, int size );
 
 // cl_democtl.c
 qboolean CL_DemoCtlPaused( void );
@@ -947,10 +967,39 @@ void CL_DemoCtlKeyframe( void );
 void CL_DemoCtlCapture( void );
 qboolean CL_DemoCtlRewindLink( void );
 void CL_DemoCtlSmoothView( void );
+void CL_InitPuertas( void );
+void CL_InitAds( void ); // custom: cl_ads.c, aiming down the sights
+void CL_InitVaiven( void ); // custom: cl_vaiven.c, the sway of the aim
+qboolean CL_PrecisionRealista( void );
+void CL_VaivenMensaje( const char *nombre, const byte *buf, int size );
+void CL_VaivenDisparo( void );
+void CL_VaivenAplicar( usercmd_t *cmd, float frac, const char *modelo, qboolean bipode );
+void CL_AdsCmd( usercmd_t *cmd, const vec3_t angulos_antes, qboolean active );
+void CL_AdsFrame( void );
+float CL_AdsFov( float fov );
+void CL_AdsViewModel( const ref_params_t *rp );
+qboolean CL_AdsApuntando( void );
+void CL_AdsDraw( void );
+void CL_AdsTriAPI( triangleapi_t *tri );
+void CL_AdsEvento( const event_args_t *args );
+qboolean CL_AdsTecla( int key, qboolean down );
+const float *CL_AdsBala( const float *v1, const float *v2, vec3_t fin );
+void CL_AdsRetroceso( float *angles, const void *retorno );
+void CL_InitMarcador( void ); // custom: cl_marcador.c, the artillery marker in the hand
+qboolean CL_MarcadorActivo( void );
+qboolean CL_MarcadorEspejo( void );
+void CL_MarcadorCmd( usercmd_t *cmd, qboolean active );
+void CL_MarcadorFrame( void );
+void CL_LuzPuertas( void );
+void CL_InitHumo( void ); // custom: cl_humo.c
+void CL_HumoFrame( void );
+void CL_HumoLimpiar( void );
+qboolean CL_HumoEvento( const char *nombre, event_args_t *args );
 void CL_DemoCtlSmoothPlayer( int index, vec3_t origin );
 qboolean CL_DemoCtlDeathMsg( const byte *buf, int size );
 qboolean CL_DemoCtlSkipUserMsg( const char *name );
 qboolean CL_DemoCtlHoldReading( void );
+float CL_DemoCtlNow( void );
 void CL_ClearMovingEffects( void );
 
 static inline qboolean CL_IsThirdPerson( void )

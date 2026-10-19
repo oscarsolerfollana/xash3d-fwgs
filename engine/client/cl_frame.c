@@ -473,14 +473,16 @@ static int CL_InterpolateModel( cl_entity_t *e )
 	double t1 = ph1->animtime;
 	double t2 = ph0->animtime;
 
+	// a demo that jumped back keeps updates from later on: what stands still
+	// (CS hostages) would stay hidden until it moved, so it stays where it is
 	if( t - t1 < 0.0f )
-		return 0;
+		return cls.demoplayback ? 1 : 0;
 
 	if( t1 == 0.0f )
 	{
 		VectorCopy( ph0->origin, e->origin );
 		VectorCopy( ph0->angles, e->angles );
-		return 0;
+		return cls.demoplayback ? 1 : 0;
 	}
 
 	if( Q_equal( t2, t1 ))
@@ -768,6 +770,12 @@ static void CL_DeltaEntity( sizebuf_t *msg, frame_t *frame, int newnum, entity_s
 #endif
 		return;
 	}
+
+	// a full update (the keyframes a demo recording asks for every few
+	// seconds) also sends what was already here: resetting its interpolation
+	// would hide it for cl_interp
+	if( newent && !cls.demoplayback && ent->curstate.messagenum == cl.parsecount - 1 && ent->curstate.modelindex == state->modelindex )
+		newent = false;
 
 	if( newent )
 	{
@@ -1344,6 +1352,12 @@ void CL_EmitEntities( void )
 	// evaluate temp entities
 	CL_TempEntUpdate ();
 
+	// custom: light of the other side through open doors
+	CL_LuzPuertas();
+
+	// custom: the puffs of the artillery marker smoke
+	CL_HumoFrame();
+
 	// fire events (client and server)
 	CL_FireEvents ();
 
@@ -1369,7 +1383,9 @@ qboolean CL_GetEntitySpatialization( channel_t *ch )
 		return true; // static sound
 	}
 
-	if(( ch->entnum - 1 ) == cl.playernum )
+	// a demo following someone else: the recorder's sounds come from where
+	// he is, not from the camera
+	if(( ch->entnum - 1 ) == cl.playernum && !CL_DemoCamOnOther( ))
 	{
 		VectorCopy( refState.vieworg, ch->origin );
 		return true;

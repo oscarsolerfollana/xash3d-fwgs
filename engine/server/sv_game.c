@@ -235,6 +235,7 @@ void GAME_EXPORT SV_SetModel( edict_t *ent, const char *modelname )
 	if( *modelname == '\\' || *modelname == '/' )
 		modelname++;
 
+	modelname = SV_VariantesModelo( ent, modelname );
 	Q_strncpy( name, modelname, sizeof( name ));
 	COM_FixSlashes( name );
 
@@ -1340,8 +1341,48 @@ pfnSetSize
 */
 static void GAME_EXPORT pfnSetSize( edict_t *e, const float *rgflMin, const float *rgflMax )
 {
+	vec3_t	mins, maxs;
+
 	if( !SV_IsValidEdict( e ))
 		return;
+
+	// custom: Firearms' ammobox collides as 64x48x36 about its origin, but the
+	// closed box of w_ammobox.mdl is 50x78x41 and off centre: the player got
+	// 19 units into it. It takes the box of the model, turned by its yaw
+	if( !Q_strcmp( SV_GetString( e->v.classname ), "ammobox" ))
+	{
+		model_t		*mod = SV_ModelHandle( e->v.modelindex );
+		studiohdr_t	*hdr = mod && mod->type == mod_studio ? (studiohdr_t *)Mod_StudioExtradata( mod ) : NULL;
+
+		if( hdr && hdr->numseq > 0 )
+		{
+			mstudioseqdesc_t *seq = (mstudioseqdesc_t *)((byte *)hdr + hdr->seqindex );
+			float	s, c, a = DEG2RAD( e->v.angles[YAW] );
+			int	i;
+
+			s = sin( a );
+			c = cos( a );
+			ClearBounds( mins, maxs );
+			for( i = 0; i < 4; i++ )
+			{
+				float	x = ( i & 1 ) ? seq->bbmax[0] : seq->bbmin[0];
+				float	y = ( i & 2 ) ? seq->bbmax[1] : seq->bbmin[1];
+				vec3_t	p;
+
+				p[0] = x * c - y * s;
+				p[1] = x * s + y * c;
+				p[2] = seq->bbmin[2];
+				AddPointToBounds( p, mins, maxs );
+				p[2] = seq->bbmax[2];
+				AddPointToBounds( p, mins, maxs );
+			}
+			Con_DPrintf( "ammobox at %g %g %g: size %g %g %g, %g %g %g (the game's %g %g %g, %g %g %g)\n",
+				e->v.origin[0], e->v.origin[1], e->v.origin[2], mins[0], mins[1], mins[2], maxs[0], maxs[1], maxs[2],
+				rgflMin[0], rgflMin[1], rgflMin[2], rgflMax[0], rgflMax[1], rgflMax[2] );
+			rgflMin = mins;
+			rgflMax = maxs;
+		}
+	}
 
 	SV_SetMinMaxSize( e, rgflMin, rgflMax, true );
 }
@@ -2091,6 +2132,73 @@ static void GAME_EXPORT pfnEmitAmbientSound( edict_t *ent, float *pos, const cha
 
 /*
 =================
+SV_TraceShotDebug
+
+debug: dump long traces started by a player, to compare bullets
+=================
+*/
+static void SV_TraceShotDebug( const char *tag, const float *v1, const float *v2, int fNoMonsters, int hull, edict_t *skip, const trace_t *tr )
+{
+	vec3_t	dir;
+	float	len;
+	int	i, idx;
+
+	if( !sv_trace_shots.value || !SV_IsValidEdict( skip ))
+		return;
+
+	idx = NUM_FOR_EDICT( skip );
+	if( idx < 1 || idx > svs.maxclients )
+		return;
+
+	VectorSubtract( v2, v1, dir );
+	len = VectorLength( dir );
+	if( len < 256.0f )
+		return;
+
+	Con_Printf( "[shot] %s t=%.3f by \"%s\" nomon=%i hull=%i flags=%x vang=(%.2f %.2f %.2f) punch=(%.2f %.2f %.2f) org=(%.1f %.1f %.1f) vofs=%.1f vuser1=(%.2f %.2f %.2f) iuser=(%i %i %i %i) fuser=(%.2f %.2f)\n",
+		tag, sv.time, SV_GetString( skip->v.netname ), fNoMonsters, hull, skip->v.flags,
+		skip->v.v_angle[0], skip->v.v_angle[1], skip->v.v_angle[2],
+		skip->v.punchangle[0], skip->v.punchangle[1], skip->v.punchangle[2],
+		skip->v.origin[0], skip->v.origin[1], skip->v.origin[2], skip->v.view_ofs[2],
+		skip->v.vuser1[0], skip->v.vuser1[1], skip->v.vuser1[2],
+		skip->v.iuser1, skip->v.iuser2, skip->v.iuser3, skip->v.iuser4, skip->v.fuser1, skip->v.fuser2 );
+	Con_Printf( "[shot]   start=(%.1f %.1f %.1f) end=(%.1f %.1f %.1f) len=%.0f -> frac=%.4f hit=%s \"%s\" hitgroup=%i endpos=(%.1f %.1f %.1f)%s%s\n",
+		v1[0], v1[1], v1[2], v2[0], v2[1], v2[2], len, tr->fraction,
+		SV_IsValidEdict( tr->ent ) ? SV_GetString( tr->ent->v.classname ) : "none",
+		SV_IsValidEdict( tr->ent ) ? SV_GetString( tr->ent->v.netname ) : "",
+		tr->hitgroup, tr->endpos[0], tr->endpos[1], tr->endpos[2],
+		tr->allsolid ? " ALLSOLID" : "", tr->startsolid ? " STARTSOLID" : "" );
+
+	VectorScale( dir, 1.0f / len, dir );
+
+	for( i = 1; i <= svs.maxclients; i++ )
+	{
+		edict_t	*cl = svgame.edicts + i;
+		vec3_t	center, d, p;
+		float	t;
+
+		if( i == idx || !SV_IsValidEdict( cl ) || !cl->v.modelindex )
+			continue;
+
+		VectorAverage( cl->v.absmin, cl->v.absmax, center );
+		VectorSubtract( center, v1, d );
+		t = DotProduct( d, dir );
+		if( t < 0.0f || t > len )
+			continue;
+		VectorMA( v1, t, dir, p );
+		VectorSubtract( center, p, d );
+		if( VectorLength( d ) > 48.0f )
+			continue;
+
+		Con_Printf( "[shot]   passes %.1f units from \"%s\" at dist %.0f: absmin=(%.1f %.1f %.1f) absmax=(%.1f %.1f %.1f) solid=%i seq=%i gait=%i frame=%.1f ang=(%.1f %.1f %.1f)\n",
+			VectorLength( d ), SV_GetString( cl->v.netname ), t,
+			cl->v.absmin[0], cl->v.absmin[1], cl->v.absmin[2], cl->v.absmax[0], cl->v.absmax[1], cl->v.absmax[2],
+			cl->v.solid, cl->v.sequence, cl->v.gaitsequence, cl->v.frame, cl->v.angles[0], cl->v.angles[1], cl->v.angles[2] );
+	}
+}
+
+/*
+=================
 pfnTraceLine
 
 =================
@@ -2098,10 +2206,58 @@ pfnTraceLine
 static void GAME_EXPORT pfnTraceLine( const float *v1, const float *v2, int fNoMonsters, edict_t *pentToSkip, TraceResult *ptr )
 {
 	trace_t	trace;
+	vec3_t	fin;
+
+	// custom: who aims down the sights shoots closer to the view (ads_bala.c),
+	// and a weapon variant can be more or less precise and do more or less damage.
+	// With precision_realista, aiming, the bullet goes where the sights are, off
+	// only by what the weapon does by itself (armas_reales.c)
+	sv_client_t *cl = SV_IsValidEdict( pentToSkip ) ? SV_ClientFromEdict( pentToSkip, true ) : NULL;
+
+	if( cl )
+	{
+		float	dano, moa = 0.0f, k = SV_VariantesBala( pentToSkip, &dano );
+
+		if( cl->ads && precision_realista.value )
+		{
+			COM_ArmaReal( SV_GetString( pentToSkip->v.viewmodel ), &moa );
+			if( moa >= 0.0f )
+			{
+				moa *= k; // a variant more or less precise
+				k = 0.0f;
+			}
+			else
+			{
+				moa = 0.0f; // shotguns: their pellets as the game spreads them
+				k *= sv_ads_dispersion.value;
+			}
+		}
+		else if( cl->ads )
+			k *= sv_ads_dispersion.value;
+		else if( precision_realista.value )
+			k *= precision_cadera.value; // from the hip, without sights
+
+		if( k != 1.0f || moa > 0.0f )
+		{
+			vec3_t ojo, angulos;
+
+			VectorAdd( pentToSkip->v.origin, pentToSkip->v.view_ofs, ojo );
+			VectorAdd( pentToSkip->v.v_angle, pentToSkip->v.punchangle, angulos );
+			v2 = COM_AdsBala( 0, pentToSkip, sv.time, ojo, angulos, k, moa, v1, v2, fin );
+		}
+
+		if( dano != 1.0f )
+			SV_VariantesDano( dano, __builtin_frame_address( 0 ));
+	}
 
 	trace = SV_Move( v1, vec3_origin, vec3_origin, v2, fNoMonsters, pentToSkip, false );
 	if( !SV_IsValidEdict( trace.ent ))
 		trace.ent = svgame.edicts;
+
+	// custom: a bullet in an arm makes the aim of who got it sway more (cl_vaiven.c)
+	if( cl && trace.ent != pentToSkip && ( trace.hitgroup == 4 || trace.hitgroup == 5 ))
+		SV_BrazoHerido( pentToSkip, trace.ent, v1, v2 );
+	SV_TraceShotDebug( "line", v1, v2, fNoMonsters, -1, pentToSkip, &trace );
 	SV_ConvertTrace( ptr, &trace );
 }
 
@@ -2135,7 +2291,12 @@ static void GAME_EXPORT pfnTraceHull( const float *v1, const float *v2, int fNoM
 	if( hullNumber < 0 || hullNumber > 3 )
 		hullNumber = 0;
 
+	// custom: the thrown artillery marker doesn't need room where the player stands
+	if( SV_MarcadorSitio( v1, v2, hullNumber, ptr ))
+		return;
+
 	trace = SV_Move( v1, sv.worldmodel->hulls[hullNumber].clip_mins, sv.worldmodel->hulls[hullNumber].clip_maxs, v2, fNoMonsters, pentToSkip, false );
+	SV_TraceShotDebug( "hull", v1, v2, fNoMonsters, hullNumber, pentToSkip, &trace );
 	SV_ConvertTrace( ptr, &trace );
 }
 
@@ -2221,6 +2382,10 @@ static const char *pfnTraceTexture( edict_t *pTextureEntity, const float *v1, co
 {
 	if( !SV_IsValidEdict( pTextureEntity ))
 		return NULL;
+
+	// custom: the thrown artillery marker doesn't need the sky above the player
+	if( SV_MarcadorFuera( ))
+		return "sky";
 
 	return SV_TraceTexture( pTextureEntity, v1, v2 );
 }
@@ -2502,6 +2667,185 @@ static qboolean SV_RewriteMessage( void )
 }
 
 /*
+==============================================================================
+DEMO STATS
+
+The game sends health, armor, ammo and money only to their owner, so a
+demo has them just for whoever recorded it. Clients that ask for it
+(cl_demostats in their userinfo) get everyone else's copied as well, in
+an engine user message the client keeps to itself: XDStats, with the
+player, which message it was and its bytes. Changes go out at once, and
+everything again every DEMOSTATS_REFRESH seconds, for demos that start
+recording late or jump back. Also the zoom (SetFOV) and flashbangs
+(ScreenFade), these only once
+==============================================================================
+*/
+#define DEMOSTATS_MAX_ENTRIES 48
+#define DEMOSTATS_MAX_DATA    16
+#define DEMOSTATS_REFRESH     2.0
+#define DEMOSTATS_AMMOX       5 // one kept per ammo type
+#define DEMOSTATS_FADE        7 // flashbangs: sent once, never again
+
+static const char *demostats_names[] = { "Health", "Battery", "ArmorType", "Money", "CurWeapon", "AmmoX", "SetFOV", "ScreenFade" };
+
+typedef struct
+{
+	byte kind;
+	byte len;
+	byte data[DEMOSTATS_MAX_DATA];
+} demostats_entry_t;
+
+static struct
+{
+	demostats_entry_t entries[DEMOSTATS_MAX_ENTRIES];
+	int               num;
+} demostats[MAX_CLIENTS];
+
+static double demostats_next_refresh;
+static int    demostats_refresh_player;
+static int    demostats_payload; // where the bytes of the message being written start
+
+static int GAME_EXPORT pfnRegUserMsg( const char *pszName, int iSize );
+
+static qboolean SV_DemoStatsWanted( const sv_client_t *cl )
+{
+	if( cl->state != cs_spawned || FBitSet( cl->flags, FCL_FAKECLIENT ))
+		return false;
+
+	return Q_atoi( Info_ValueForKey( cl->userinfo, "cl_demostats" )) != 0;
+}
+
+static void SV_DemoStatsSend( sv_client_t *to, int player, const demostats_entry_t *e )
+{
+	int num = pfnRegUserMsg( "XDStats", -1 );
+
+	if( num == svc_bad || MSG_GetNumBytesLeft( &to->datagram ) < e->len + 8 )
+		return;
+
+	MSG_BeginServerCmd( &to->datagram, num );
+	MSG_WriteWord( &to->datagram, e->len + 2 );
+	MSG_WriteByte( &to->datagram, player );
+	MSG_WriteByte( &to->datagram, e->kind );
+	MSG_WriteBytes( &to->datagram, e->data, e->len );
+}
+
+/*
+=================
+SV_DemoStatsCapture
+
+a message just went to one player: keep it if it's one of those
+=================
+*/
+static void SV_DemoStatsCapture( int dest, edict_t *ed, const char *name, const byte *data, int len )
+{
+	demostats_entry_t *e = NULL;
+	int kind, player, i;
+
+	if(( dest != MSG_ONE && dest != MSG_ONE_UNRELIABLE ) || !ed || len <= 0 || len > DEMOSTATS_MAX_DATA )
+		return;
+
+	player = NUM_FOR_EDICT( ed );
+
+	if( player < 1 || player > svs.maxclients )
+		return;
+
+	for( kind = 0; kind < ARRAYSIZE( demostats_names ); kind++ )
+	{
+		if( !Q_strcmp( name, demostats_names[kind] ))
+			break;
+	}
+
+	if( kind == ARRAYSIZE( demostats_names ))
+		return;
+
+	if( kind == DEMOSTATS_FADE )
+	{
+		demostats_entry_t fade = { .kind = kind, .len = len };
+
+		memcpy( fade.data, data, len );
+
+		for( i = 0; i < svs.maxclients; i++ )
+		{
+			if( i + 1 != player && SV_DemoStatsWanted( &svs.clients[i] ))
+				SV_DemoStatsSend( &svs.clients[i], player, &fade );
+		}
+		return;
+	}
+
+	for( i = 0; i < demostats[player - 1].num; i++ )
+	{
+		demostats_entry_t *it = &demostats[player - 1].entries[i];
+
+		if( it->kind == kind && ( kind != DEMOSTATS_AMMOX || it->data[0] == data[0] ))
+		{
+			e = it;
+			break;
+		}
+	}
+
+	if( !e )
+	{
+		if( demostats[player - 1].num >= DEMOSTATS_MAX_ENTRIES )
+			return;
+
+		e = &demostats[player - 1].entries[demostats[player - 1].num++];
+	}
+
+	e->kind = kind;
+	e->len = len;
+	memcpy( e->data, data, len );
+
+	for( i = 0; i < svs.maxclients; i++ )
+	{
+		if( i + 1 != player && SV_DemoStatsWanted( &svs.clients[i] ))
+			SV_DemoStatsSend( &svs.clients[i], player, e );
+	}
+}
+
+void SV_DemoStatsRegister( void )
+{
+	pfnRegUserMsg( "XDStats", -1 );
+}
+
+/*
+=================
+SV_DemoStatsFrame
+
+everything again now and then; forgets players who left
+=================
+*/
+void SV_DemoStatsFrame( void )
+{
+	int i, j, k;
+
+	for( i = 0; i < svs.maxclients; i++ )
+	{
+		if( svs.clients[i].state < cs_connected )
+			demostats[i].num = 0;
+	}
+
+	// a new map starts the clock again
+	if( demostats_next_refresh > sv.time + DEMOSTATS_REFRESH )
+		demostats_next_refresh = 0.0;
+
+	if( sv.time < demostats_next_refresh )
+		return;
+
+	// one player at a time: all at once they don't fit with the rest of the packet
+	demostats_next_refresh = sv.time + DEMOSTATS_REFRESH / Q_max( 1, svs.maxclients );
+	j = demostats_refresh_player++ % Q_max( 1, svs.maxclients );
+
+	for( i = 0; i < svs.maxclients; i++ )
+	{
+		if( i == j || !SV_DemoStatsWanted( &svs.clients[i] ))
+			continue;
+
+		for( k = 0; k < demostats[j].num; k++ )
+			SV_DemoStatsSend( &svs.clients[i], j + 1, &demostats[j].entries[k] );
+	}
+}
+
+/*
 =============
 pfnMessageBegin
 
@@ -2577,6 +2921,7 @@ static void GAME_EXPORT pfnMessageBegin( int msg_dest, int msg_num, const float 
 	}
 	else svgame.msg_size_index = -1; // message has constant size
 
+	demostats_payload = MSG_GetNumBytesWritten( &sv.multicast );
 	svgame.msg_realsize = 0;
 	svgame.msg_dest = msg_dest;
 	svgame.msg_ent = ed;
@@ -2704,7 +3049,17 @@ static void GAME_EXPORT pfnMessageEnd( void )
 	if( !VectorIsNull( svgame.msg_org )) org = svgame.msg_org;
 	svgame.msg_dest = bound( MSG_BROADCAST, svgame.msg_dest, MSG_SPEC );
 
-	SV_Multicast( svgame.msg_dest, org, svgame.msg_ent, true, false );
+	// sending it clears the buffer
+	if( svgame.msg_index > 0 && svgame.msg_realsize > 0 && svgame.msg_realsize <= DEMOSTATS_MAX_DATA )
+	{
+		byte data[DEMOSTATS_MAX_DATA];
+		int len = svgame.msg_realsize;
+
+		memcpy( data, sv.multicast.pData + demostats_payload, len );
+		SV_Multicast( svgame.msg_dest, org, svgame.msg_ent, true, false );
+		SV_DemoStatsCapture( svgame.msg_dest, svgame.msg_ent, name, data, len );
+	}
+	else SV_Multicast( svgame.msg_dest, org, svgame.msg_ent, true, false );
 
 	if( svgame.msg_trace ) Con_Printf( "^3%s()\n", __func__ );
 }
@@ -3694,8 +4049,16 @@ pfnIsDedicatedServer
 
 =============
 */
+// custom: while the game dll gets the engine functions (GiveFnptrsToDll), not dedicated: metamod-p asks
+// then, and on a dedicated server, not finding the engine by the name of its dll (sw.dll, hw.dll, swds.dll),
+// takes no valid range of engine code and drops the newer engine functions (GetPlayerAuthId and the rest);
+// NS called it with a player entering and crashed. As a listen server it takes all of them as valid
+static qboolean sv_dando_funciones;
+
 static int GAME_EXPORT pfnIsDedicatedServer( void )
 {
+	if( sv_dando_funciones )
+		return false;
 	return Host_IsDedicated();
 }
 
@@ -3784,7 +4147,9 @@ static void GAME_EXPORT pfnSetClientMaxspeed( const edict_t *pEdict, float fNewM
 	// There isn't any reference to "maxspd" anywhere except some commented-out code in SDK
 	Info_SetValueForKeyf( cl->physinfo, "maxspd", MAX_INFO_STRING, "%.f", fNewMaxspeed );
 
-	cl->edict->v.maxspeed = fNewMaxspeed;
+	// cl->edict is NULL once the client has dropped, but game dlls (Marine Bot) may still
+	// set the speed of that edict; it's the same edict anyway
+	((edict_t *)pEdict)->v.maxspeed = fNewMaxspeed;
 }
 
 /*
@@ -4025,6 +4390,10 @@ void GAME_EXPORT SV_PlaybackEventFull( int flags, const edict_t *pInvoker, word 
 		Con_Printf( S_ERROR "%s: event %i was not precached\n", __func__, eventindex );
 		return;
 	}
+
+	// custom: Firearms' artillery marker is thrown, its smoke waits for it (sv_marcador.c)
+	if( SV_MarcadorEvento( flags, pInvoker, eventindex, origin, angles, fparam1, fparam2, iparam1, iparam2, bparam1, bparam2 ))
+		return;
 
 	DbgWeapon_Event( DBG_WEAPON_SV, sv.event_precache[eventindex], angles,
 		fparam1, fparam2, iparam1, iparam2, bparam1, bparam2 );
@@ -5258,7 +5627,9 @@ qboolean SV_LoadProgs( const char *name )
 		return false;
 	}
 
+	sv_dando_funciones = true;
 	GiveFnptrsToDll( &gpEngfuncs, svgame.globals );
+	sv_dando_funciones = false;
 
 	// get extended callbacks
 	if( GiveNewDllFuncs )

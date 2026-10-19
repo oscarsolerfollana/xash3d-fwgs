@@ -216,6 +216,7 @@ typedef struct sv_client_s
 
 	int ignorecmdtime_warns; // how many times client time was faster than server during this session
 	int userid;              // identifying number on server
+	qboolean ads;            // custom: aiming down the sights (cl_ads.c), the bullets go closer to the view
 
 	netchan_t netchan;
 	sizebuf_t datagram; // the datagram is written to by sound calls, prints, temp ents, etc.
@@ -425,6 +426,7 @@ extern convar_t		sv_uploadmax;
 extern convar_t		sv_upload_penalty_time;
 extern convar_t		sv_trace_messages;
 extern convar_t		sv_trace_pushers;
+extern convar_t		sv_trace_shots;
 extern convar_t		sv_enttools_enable;
 extern convar_t		sv_enttools_maxfire;
 extern convar_t		sv_autosave;
@@ -451,6 +453,9 @@ extern convar_t		sv_fullupdate_penalty_time;
 extern convar_t		sv_log_outofband;
 extern convar_t		sv_allow_autoaim;
 extern convar_t		sv_aim;
+extern convar_t		sv_ads_dispersion;
+extern convar_t		precision_realista;
+extern convar_t		precision_cadera;
 extern convar_t		sv_allow_testpacket;
 extern convar_t		sv_expose_player_list;
 
@@ -615,6 +620,25 @@ void SV_WriteEntityPatch( const char *filename );
 void SV_SpawnEntities( const char *mapname );
 edict_t* SV_CreateNamedEntity( edict_t *ent, string_t className );
 string_t SV_AllocString( const char *szValue );
+//
+// sv_variantes.c
+//
+void SV_VariantesInit( void );
+void SV_VariantesActivar( void );
+void SV_VariantesComando( sv_client_t *cl );
+void SV_VariantesFrame( void );
+const char *SV_VariantesModelo( edict_t *ent, const char *modelname );
+float SV_VariantesBala( edict_t *jugador, float *dano );
+void SV_VariantesDano( float f, void *pila );
+void SV_BrazoHerido( edict_t *tirador, edict_t *herido, const float *v1, const float *v2 );
+void SV_MarcadorInit( void ); // custom: sv_marcador.c
+void SV_MarcadorActivar( void );
+void SV_MarcadorFrame( void );
+void SV_MarcadorComando( qboolean dentro );
+qboolean SV_MarcadorSitio( const float *v1, const float *v2, int hull, TraceResult *ptr );
+qboolean SV_MarcadorFuera( void );
+qboolean SV_MarcadorEvento( int flags, const edict_t *pInvoker, word eventindex, float *origin, float *angles,
+	float fparam1, float fparam2, int iparam1, int iparam2, int bparam1, int bparam2 );
 string_t SV_MakeString( const char *szValue );
 const char *SV_GetString( string_t iString );
 void SV_SetStringArrayMode( qboolean dynamic );
@@ -725,5 +749,8 @@ static inline qboolean SV_CheckGroupTrace( const edict_t *e1, const edict_t *e2 
 
 	return true;
 }
+
+void SV_DemoStatsFrame( void );
+void SV_DemoStatsRegister( void );
 
 #endif//SERVER_H

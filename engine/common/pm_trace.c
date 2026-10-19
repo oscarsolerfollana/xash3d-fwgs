@@ -343,6 +343,75 @@ static qboolean PM_CustomClipAvailable( playermove_t *pmove )
 #endif
 }
 
+/*
+==================
+PM_TraceReaches
+
+custom: whether the trace can touch the entity at all: its box (as large as anything of it can be: a turned
+brush model its radius, a studio model its hitboxes beyond its box), grown by the hull, against the box of
+the trace. NS does a trace for each particle that collides against all the entities in sight, and with no
+such test each one took some 33 microseconds (about 160 a frame: 5 ms) once its particle systems filled up
+==================
+*/
+static qboolean PM_TraceReaches( const playermove_t *pmove, const physent_t *pe, const vec3_t start, const vec3_t end )
+{
+	vec3_t lo, hi;
+	int j;
+
+	if( pe->model )
+	{
+		if( !VectorIsNull( pe->angles ))
+		{
+			float r = pe->model->radius;
+
+			if( r <= 0.0f )
+				return true;
+			for( j = 0; j < 3; j++ )
+			{
+				lo[j] = pe->origin[j] - r;
+				hi[j] = pe->origin[j] + r;
+			}
+		}
+		else
+		{
+			VectorAdd( pe->origin, pe->model->mins, lo );
+			VectorAdd( pe->origin, pe->model->maxs, hi );
+		}
+	}
+	else if( pe->studiomodel )
+	{
+		float r = 0.0f;
+
+		for( j = 0; j < 3; j++ )
+		{
+			r = Q_max( r, Q_max( fabs( pe->mins[j] ), fabs( pe->maxs[j] )));
+			r = Q_max( r, Q_max( fabs( pe->studiomodel->mins[j] ), fabs( pe->studiomodel->maxs[j] )));
+		}
+		r = r * 1.75f + 32.0f;
+		for( j = 0; j < 3; j++ )
+		{
+			lo[j] = pe->origin[j] - r;
+			hi[j] = pe->origin[j] + r;
+		}
+	}
+	else
+	{
+		VectorAdd( pe->origin, pe->mins, lo );
+		VectorAdd( pe->origin, pe->maxs, hi );
+	}
+
+	for( j = 0; j < 3; j++ )
+	{
+		float smin = Q_min( start[j], end[j] ), smax = Q_max( start[j], end[j] );
+
+		if( smax < lo[j] - host.player_maxs[pmove->usehull][j] - 1.0f )
+			return false;
+		if( smin > hi[j] - host.player_mins[pmove->usehull][j] + 1.0f )
+			return false;
+	}
+	return true;
+}
+
 pmtrace_t PM_PlayerTraceExt( playermove_t *pmove, vec3_t start, vec3_t end, int flags, int numents, physent_t *ents, int ignore_pe, pfnIgnore pmFilter )
 {
 	pmtrace_t trace_total;
@@ -385,6 +454,10 @@ pmtrace_t PM_PlayerTraceExt( playermove_t *pmove, vec3_t start, vec3_t end, int 
 			continue;
 
 		if(( flags & PM_CUSTOM_IGNORE ) && pe->solid == SOLID_CUSTOM )
+			continue;
+
+		// custom: what the trace cannot reach, not traced (PM_TraceReaches)
+		if( i != 0 && pe->solid != SOLID_CUSTOM && !PM_TraceReaches( pmove, pe, start, end ))
 			continue;
 
 		hullcount = 1;
@@ -527,7 +600,12 @@ pmtrace_t PM_PlayerTraceExt( playermove_t *pmove, vec3_t start, vec3_t end, int 
 			trace_bbox.startsolid = true;
 
 		if( trace_bbox.startsolid )
+		{
 			trace_bbox.fraction = 0.0f;
+			// custom: where it stopped, at the start; left at the end, the NS commander (the trace of the
+			// mouse starts inside his own player) went on from 8192 units away and never got out of the loop
+			VectorCopy( start, trace_bbox.endpos );
+		}
 
 		if( !trace_bbox.startsolid )
 		{

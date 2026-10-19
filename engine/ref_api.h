@@ -350,6 +350,7 @@ typedef enum
 	PARM_GET_DLIGHTS_PTR = -21,
 	PARM_GET_ELIGHTS_PTR = -22,
 	PARM_GET_STUDIO_HDR = -23, // current m_pStudioHeader in renderer
+	PARM_VIEWMODEL_FLIP = -24, // custom: the viewmodel is drawn mirrored (a left-handed model in the right hand)
 
 	// implemented by ref_dll
 

@@ -202,6 +202,8 @@ intptr_t CL_RenderGetParm( const int parm, const int arg, const qboolean checkRe
 			return (intptr_t)CL_GetDynamicLight( 0 );
 		case PARM_GET_ELIGHTS_PTR:
 			return (intptr_t)CL_GetEntityLight( 0 );
+		case PARM_VIEWMODEL_FLIP:
+			return CL_MarcadorEspejo();
 		}
 	}
 	return 0;

@@ -118,7 +118,7 @@ static void CL_ParseSoundPacket( sizebuf_t *msg, qboolean restore )
 		S_RestoreSound( pos, entnum, chan, handle, volume, attn, pitch, flags, samplePos, forcedEnd, wordIndex );
 	else if( chan == CHAN_STATIC )
 		S_AmbientSound( pos, entnum, handle, volume, attn, pitch, flags );
-	else
+	else if( !CL_DemoCamSkipSound( entnum, chan ))
 		S_StartSound( pos, entnum, chan, handle, volume, attn, pitch, flags );
 }
 
@@ -2297,6 +2297,12 @@ void CL_ParseUserMessage( sizebuf_t *msg, int svc_num, connprotocol_t proto )
 		Con_Reportf( "^3USERMSG %s SIZE %i SVC_NUM %i\n",
 			clgame.msg[i].name, iSize, clgame.msg[i].number );
 	}
+
+	CL_VaivenMensaje( clgame.msg[i].name, pbuf, iSize ); // custom: the Stamina of Firearms, for the sway of the aim
+
+	// everyone's health, armor, ammo and money, for the HUD of the player followed in a demo
+	if( CL_DemoCamUserMsg( clgame.msg[i].name, pbuf, iSize ))
+		return;
 
 	// a demo lists the kills itself, at any speed and while rewinding
 	qboolean demokill = !Q_strcmp( clgame.msg[i].name, "DeathMsg" ) && CL_DemoCtlDeathMsg( pbuf, iSize );

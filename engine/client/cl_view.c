@@ -100,8 +100,8 @@ static void V_SetupViewModel( void )
 	view->curstate.colormap = (info->topcolor & 0xFFFF)|((info->bottomcolor << 8) & 0xFFFF);
 	view->curstate.number = cl.playernum + 1;
 	view->index = cl.playernum + 1;
-	view->model = CL_ModelHandle( cl.local.viewmodel );
-	view->curstate.modelindex = cl.local.viewmodel;
+	view->curstate.modelindex = CL_VariantesViewModel( cl.local.viewmodel );
+	view->model = CL_ModelHandle( view->curstate.modelindex );
 	view->curstate.sequence = cl.local.weaponsequence;
 	view->curstate.rendermode = kRenderNormal;
 
@@ -303,6 +303,7 @@ static void V_GetRefParams( ref_params_t *fd, ref_viewpass_t *rvp )
 
 	// calc FOV
 	rvp->fov_x = bound( 10.0f, cl.local.scr_fov, 150.0f ); // this is a final fov value
+	rvp->fov_x = CL_AdsFov( rvp->fov_x ); // custom: aiming down the sights
 
 	// first we need to compute FOV and other things that needs for frustum properly work
 	rvp->fov_y = V_CalcFov( &rvp->fov_x, clgame.viewport[2], clgame.viewport[3] );
@@ -395,9 +396,13 @@ void V_RenderView( void )
 	if( !cl.video_prepped || ( !ui_renderworld.value && UI_IsVisible() && !cl.background ))
 		return; // still loading
 
+	Mod_TexturasHD( cl.worldmodel ); // custom: r_texturas_hd, F8
+
 	V_CalcViewRect ();	// compute viewport rectangle
 	V_SetRefParams( &rp );
 	V_SetupViewModel ();
+	CL_AdsFrame(); // custom: aiming down the sights
+	CL_MarcadorFrame(); // custom: the artillery marker in the hand
 	ref.dllFuncs.R_Set2DMode( false );
 	SCR_DirtyScreen();
 	ref.dllFuncs.GL_BackendStartFrame ();
@@ -405,8 +410,11 @@ void V_RenderView( void )
 	do
 	{
 		clgame.dllFuncs.pfnCalcRefdef( &rp );
+		if( viewnum == 0 )
+			CL_AdsViewModel( &rp ); // custom: the sights to the middle
 		CL_DemoCamApply( &rp );
 		V_GetRefParams( &rp, &rvp );
+		CL_DemoCamZoom( &rvp.fov_x, &rvp.fov_y );
 		V_RefApplyOverview( &rvp );
 		V_ApplyRefUnderwater( &rvp );
 
@@ -416,6 +424,7 @@ void V_RenderView( void )
 		}
 
 		GL_RenderFrame( &rvp );
+		rvp.viewentity = CL_DemoCamListener( rvp.viewentity );
 		S_UpdateFrame( &rvp );
 		viewnum++;
 
@@ -532,9 +541,39 @@ void V_PostRender( void )
 
 	if( cls.state == ca_active && cls.signon == SIGNONS && cls.scrshot_action != scrshot_mapshot )
 	{
+		// custom: with r_fps_log, the time of the HUD of the game dll and of its VGUI (CPU), each 2 seconds
+		static double hud_t, vgui_t, desde;
+		static int frames;
+		double t0, t1, t2;
+
 		SCR_TileClear();
+		t0 = Sys_DoubleTime();
 		CL_DrawHUD( CL_ACTIVE );
+		t1 = Sys_DoubleTime();
 		VGui_Paint();
+		t2 = Sys_DoubleTime();
+		if( Cvar_VariableValue( "r_fps_log" ))
+		{
+			hud_t += t1 - t0;
+			vgui_t += t2 - t1;
+			frames++;
+			if( host.realtime - desde >= 2.0 )
+			{
+				if( desde > 0.0 && frames )
+				{
+					extern double pmcl_trazas_t;
+					extern int pmcl_trazas_n;
+
+					Con_Printf( "hud_log: %.0f hud %.2f ms vgui %.2f ms; trazas %.0f por fotograma, %.2f ms\n", host.realtime, hud_t * 1000.0 / frames, vgui_t * 1000.0 / frames,
+						pmcl_trazas_n / (double)frames, pmcl_trazas_t * 1000.0 / frames );
+					pmcl_trazas_n = 0;
+					pmcl_trazas_t = 0.0;
+				}
+				hud_t = vgui_t = 0.0;
+				frames = 0;
+				desde = host.realtime;
+			}
+		}
 	}
 
 	switch( cls.scrshot_action )
@@ -559,6 +598,7 @@ void V_PostRender( void )
 		SV_DrawOrthoTriangles();
 		CL_DrawDemoRecording();
 		CL_DemoCtlDraw();
+		CL_AdsDraw();
 		CL_DrawHUD( CL_CHANGELEVEL );
 		ref.dllFuncs.R_ShowTextures();
 		R_ShowTree();

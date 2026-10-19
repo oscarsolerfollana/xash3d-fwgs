@@ -597,6 +597,13 @@ void SV_ActivateServer( int runPhysics )
 	svgame.globals->time = sv.time;
 	svgame.dllFuncs.pfnServerActivate( svgame.edicts, svgame.numEntities, svs.maxclients );
 
+	// before anyone connects, so demos have it in their header
+	SV_DemoStatsRegister();
+
+	// weapon variants: their models have to be precached too
+	SV_VariantesActivar();
+	SV_MarcadorActivar();
+
 	SV_SetStringArrayMode( true );
 
 	// parse user-specified resources

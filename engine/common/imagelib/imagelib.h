@@ -98,8 +98,8 @@ typedef struct imglib_s
 } imglib_t;
 
 // imagelib definitions
-#define IMAGE_MAXWIDTH	8192
-#define IMAGE_MAXHEIGHT	8192
+#define IMAGE_MAXWIDTH	16384	// custom: was 8192
+#define IMAGE_MAXHEIGHT	16384
 #define LUMP_MAXWIDTH	1024	// WorldCraft limits
 #define LUMP_MAXHEIGHT	1024
 #define PLDECAL_MAXWIDTH  768 // total of ~2mb uncompressed rgba data
