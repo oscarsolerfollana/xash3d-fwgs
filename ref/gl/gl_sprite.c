@@ -541,6 +541,8 @@ void R_DrawSpriteModel( cl_entity_t *e )
 	if( psprite->facecull == SPR_CULL_NONE )
 		GL_Cull( GL_NONE );
 
+	R_HumoEmpezar( e ); // custom: the smoke puffs fade into the walls
+
 	if( oldframe == frame )
 	{
 		// draw the single non-lerped frame
@@ -587,6 +589,8 @@ void R_DrawSpriteModel( cl_entity_t *e )
 		pglDepthFunc( GL_LEQUAL );
 		pglDisable( GL_BLEND );
 	}
+
+	R_HumoTerminar();
 
 	if( psprite->facecull == SPR_CULL_NONE )
 		GL_Cull( GL_FRONT );

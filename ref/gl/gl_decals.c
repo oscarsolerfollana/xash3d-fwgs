@@ -853,6 +853,10 @@ void DrawSurfaceDecals( msurface_t *fa, qboolean single, qboolean reverse )
 	cl_entity_t *e = RI.currententity;
 	Assert( e != NULL );
 
+	// custom: the alpha of the view says how the surface under reflects (gl_bump.c); a decal blended over it
+	// changed that and the reflection read nonsense in its whole square
+	pglColorMask( GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE );
+
 	if( single )
 	{
 		if( e->curstate.rendermode == kRenderNormal || e->curstate.rendermode == kRenderTransAlpha )
@@ -949,6 +953,8 @@ void DrawSurfaceDecals( msurface_t *fa, qboolean single, qboolean reverse )
 
 	if( FBitSet( fa->flags, SURF_TRANSPARENT ) && glState.stencilEnabled )
 		pglDisable( GL_STENCIL_TEST );
+
+	pglColorMask( GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE );
 
 	if( single )
 	{

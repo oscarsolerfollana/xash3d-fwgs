@@ -337,13 +337,38 @@ qboolean R_PostBegin( void );
 void R_PostEnd( void );
 qboolean R_PostRunning( void );
 qboolean R_PostScreenReflections( void );
+qboolean R_PostActive( void );
+void R_Lupa( void );	// custom: gl_post.c
+
+//
+// gl_agua.c (custom)
+//
+void R_InitAgua( void );
+void R_InitHumo( void ); // custom: gl_humo.c
+qboolean R_HumoEmpezar( cl_entity_t *e );
+void R_HumoTerminar( void );
+qboolean R_AguaActiva( void );
+void R_AguaDibujar( int first, int last );
+qboolean R_AguaEntidad( cl_entity_t *e );
+qboolean R_AguaPendiente( void );
+qboolean R_AguaEncima( const vec3_t eye, vec3_t out );
+void R_LoadViewModelProjection( qboolean cerca );
+void R_AguaPolys( msurface_t *s );
+void R_BumpAguaPlano( const msurface_t *s, const vec3_t N );
 void R_BumpDynamic( const ref_viewpass_t *rvp );
 qboolean R_BumpDrawingDynamic( void );
 qboolean R_BumpDynamicOn( void );
 qboolean R_BumpDynamicCube( GLuint *color, GLuint *depth, vec3_t origin, float zfar[6], int *size );
 void R_BumpClipPlane( void );
 qboolean R_BumpDrawingPlanar( void );
-int R_BumpMirrors( GLuint *tex, vec4_t *plane, vec3_t *eye, vec3_t *vf, vec3_t *vr, vec3_t *vu, float *tanx, float *tany );
+const float *R_BumpPlanarEye( void );
+const float *R_BumpPlanarFoot( void );
+void R_PostMirrorDepth( GLuint fbo, GLuint depth, int w, int h, float zfar );
+qboolean R_PostMirrorBounce( GLuint fbo, GLuint scene, GLuint depth, int w, int h, const vec3_t eye, const vec3_t vf, const vec3_t vr, const vec3_t vu,
+	float tx, float ty, float zfar, const vec4_t plane, GLuint tex, GLuint tdep, float tzfar, const vec3_t pe, const vec3_t pf, const vec3_t pr, const vec3_t pu, float blur );
+qboolean R_BumpCubeOn( void );
+const ref_viewpass_t *R_BumpDebugView( const ref_viewpass_t *rvp );
+int R_BumpMirrors( GLuint *tex, GLuint *dep, float *zfar, vec4_t *plane, vec3_t *eye, vec3_t *vf, vec3_t *vr, vec3_t *vu, float *blur, float *fade, float *tanx, float *tany );
 void GL_UpdateTexture( int texnum, int cols, int rows, int width, int height, const byte *buffer, pixformat_t fmt );
 
 //
@@ -755,6 +780,7 @@ extern convar_t	r_lighting_ambient;
 extern convar_t	r_studio_lambert;
 extern convar_t	r_detailtextures;
 extern convar_t	r_novis;
+extern convar_t	r_fps_log;
 extern convar_t	r_nocull;
 extern convar_t	r_lockpvs;
 extern convar_t	r_lockfrustum;

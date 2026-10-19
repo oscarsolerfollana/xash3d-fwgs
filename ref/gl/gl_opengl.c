@@ -26,6 +26,7 @@ CVAR_DEFINE_AUTO( gl_litwater_force, "0", FCVAR_GLCONFIG, "force enable lightmap
 CVAR_DEFINE_AUTO( r_lighting_ambient, "0.3", FCVAR_GLCONFIG, "map ambient lighting scale" );
 CVAR_DEFINE_AUTO( r_detailtextures, "1", FCVAR_GLCONFIG, "enable detail textures support" );
 CVAR_DEFINE_AUTO( r_novis, "0", 0, "ignore vis information (perfomance test)" );
+CVAR_DEFINE_AUTO( r_fps_log, "0", 0, "custom: the frames per second of each 2 seconds to the console" );
 CVAR_DEFINE_AUTO( r_nocull, "0", 0, "ignore frustrum culling (perfomance test)" );
 CVAR_DEFINE_AUTO( r_lockpvs, "0", FCVAR_CHEAT, "lockpvs area at current point (pvs test)" );
 CVAR_DEFINE_AUTO( r_lockfrustum, "0", FCVAR_CHEAT, "lock frustrum area at current point (cull test)" );
@@ -1143,6 +1144,7 @@ static void GL_InitCommands( void )
 {
 	gEngfuncs.Cvar_RegisterVariable( &r_lighting_ambient );
 	gEngfuncs.Cvar_RegisterVariable( &r_novis );
+	gEngfuncs.Cvar_RegisterVariable( &r_fps_log );
 	gEngfuncs.Cvar_RegisterVariable( &r_nocull );
 	gEngfuncs.Cvar_RegisterVariable( &r_detailtextures );
 	gEngfuncs.Cvar_RegisterVariable( &r_lockpvs );
@@ -1163,6 +1165,8 @@ static void GL_InitCommands( void )
 	R_InitBloom(); // custom
 	R_InitPost(); // custom
 	R_InitBump(); // custom
+	R_InitAgua(); // custom
+	R_InitHumo(); // custom
 	gEngfuncs.Cvar_RegisterVariable( &wallhack );
 
 	gEngfuncs.Cvar_RegisterVariable( &gl_extensions );

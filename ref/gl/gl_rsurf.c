@@ -1031,6 +1031,13 @@ static void EmitWaterPolys( msurface_t *warp, qboolean reverse, qboolean ripples
 	GL_SetupFogColorForSurfaces();
 }
 
+// custom: for gl_agua.c
+void R_AguaPolys( msurface_t *s )
+{
+	GL_Bind( XASH_TEXTURE0, R_TextureAnimation( s )->gl_texturenum );
+	EmitWaterPolys( s, false, false );
+}
+
 /*
 ================
 EmitWaterLightPolys
@@ -1168,6 +1175,9 @@ static void R_BlendLightmaps( void )
 		// lightmapped solid surfaces
 		pglDepthMask( GL_FALSE );
 		pglDepthFunc( GL_EQUAL );
+		// custom: the alpha of the view says how much it reflects (gl_bump.c); the lights that change
+		// (styles) went through the overbright blend doubled and filled it: the flag emblem did not reflect
+		pglColorMask( GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE );
 		if( gl_overbright.value )
 		{
 			pglBlendFunc( GL_DST_COLOR, GL_SRC_COLOR );
@@ -1266,6 +1276,7 @@ static void R_BlendLightmaps( void )
 	pglDisable( GL_BLEND );
 	pglDepthMask( GL_TRUE );
 	pglDepthFunc( GL_LEQUAL );
+	pglColorMask( GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE );
 	pglTexEnvi( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE );
 	pglColor4f( 1.0f, 1.0f, 1.0f, 1.0f );
 
@@ -1289,6 +1300,9 @@ static void R_RenderFullbrights( qboolean allow_vbo )
 	pglDisable( GL_ALPHA_TEST );
 	pglBlendFunc( GL_ONE, GL_ONE );
 	pglTexEnvi( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE );
+	// custom: the alpha of the view says how much it reflects (gl_bump.c): adding filled it, and
+	// the flag emblem, with bright parts, stopped reflecting
+	pglColorMask( GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE );
 
 	// if fullbright textures are drawn in separate pass from VBO they
 	// cause z-fighting, this is noticeable on `slide_waifufu.bsp` map
@@ -1315,6 +1329,7 @@ static void R_RenderFullbrights( qboolean allow_vbo )
 
 	pglDisable( GL_BLEND );
 	pglDepthMask( GL_TRUE );
+	pglColorMask( GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE );
 	pglDisable( GL_ALPHA_TEST );
 	pglTexEnvi( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE );
 
@@ -1612,7 +1627,7 @@ static void R_DrawTextureChains( void )
 		if( !s || ( i == tr.skytexturenum ))
 			continue;
 
-		if(( s->flags & SURF_DRAWTURB ) && gp_movevars->wateralpha < 1.0f )
+		if(( s->flags & SURF_DRAWTURB ) && ( gp_movevars->wateralpha < 1.0f || R_AguaActiva( )))	// custom: the water with its shader, after the rest
 		{
 			R_AddToSeparatePass( &draw_wateralpha, i );
 			continue;	// draw translucent water later
@@ -1698,7 +1713,7 @@ void R_DrawWaterSurfaces( void )
 		return;
 
 	// non-transparent water is already drawed
-	if( !R_SeparatePassActive( &draw_wateralpha ))
+	if( !R_SeparatePassActive( &draw_wateralpha ) && !R_AguaPendiente( ))
 		return;
 
 	// restore worldmodel
@@ -1707,6 +1722,19 @@ void R_DrawWaterSurfaces( void )
 
 	// go back to the world matrix
 	R_LoadIdentity();
+
+	// custom: with refraction, waves and reflections (gl_agua.c)
+	if( R_AguaActiva( ))
+	{
+		if( R_SeparatePassActive( &draw_wateralpha ))
+			R_AguaDibujar( draw_wateralpha.first, draw_wateralpha.last );
+		else R_AguaDibujar( 0, -1 );
+		R_ResetSeparatePass( &draw_wateralpha );
+		pglDepthMask( GL_TRUE );
+		pglTexEnvi( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE );
+		pglColor4ub( 255, 255, 255, 255 );
+		return;
+	}
 
 	pglEnable( GL_BLEND );
 	pglDepthMask( GL_FALSE );
@@ -1918,6 +1946,9 @@ void R_DrawBrushModel( cl_entity_t *e )
 	if( R_CullBox( mins, maxs ))
 		return;
 
+	if( R_AguaEntidad( e ))
+		return;	// custom: func_water, drawn with the water of the world (gl_agua.c)
+
 	memset( gl_lms.lightmap_surfaces, 0, sizeof( gl_lms.lightmap_surfaces ));
 	int old_rendermode = e->curstate.rendermode;
 	gl_lms.dynamic_surfaces = NULL;
@@ -1973,7 +2004,7 @@ void R_DrawBrushModel( cl_entity_t *e )
 	// draw bmodels with a polyoffset to avoid flickering when they are too close to world
 	// R_DrawVBO and DrawDecalsBatch will restore polyoffset
 	if( gl_polyoffset_bmodels.value )
-		GL_PushPolygonOffset( -0.5f, -gl_polyoffset_bmodels.value );
+		GL_PushPolygonOffset( 0.0f, -gl_polyoffset_bmodels.value );	// custom: no slope part, the sides of the door halves seen edge on came out in front along the line where they meet
 
 	// draw sorted translucent surfaces
 	for( int i = 0; i < num_sorted; i++ )
@@ -3818,6 +3849,57 @@ void R_DrawWorld( void )
 
 /*
 ===============
+R_AguaDebajo
+
+custom: from the air, the leaves under the water seen (gl_agua.c draws what is under it): the engine
+adds them only within 16 units of the surface, so a little higher the bottom of the shallows was not drawn
+and the water was its colour alone
+===============
+*/
+static void R_AguaDebajo( void )
+{
+	mleaf_t	*hechas[32];
+	int	n = 0;
+
+	for( int i = 0; i < WORLDMODEL->numleafs; i++ )
+	{
+		mleaf_t *leaf;
+
+		if( !CHECKVISBIT( RI.visbytes, i ))
+			continue;
+		leaf = &WORLDMODEL->leafs[i+1];
+		if( IsLiquidContents( leaf->contents ))
+			continue;
+
+		for( int j = 0; j < leaf->nummarksurfaces; j++ )
+		{
+			msurface_t *surf = leaf->firstmarksurface[j];
+			mleaf_t *w;
+			vec3_t p, N;
+			int k;
+
+			if( !FBitSet( surf->flags, SURF_DRAWTURB ) || !surf->info )
+				continue;
+			VectorCopy( surf->plane->normal, N );
+			if( FBitSet( surf->flags, SURF_PLANEBACK ))
+				VectorNegate( N, N );
+			VectorMA( surf->info->origin, -8.0f, N, p );	// the face looks at the air: under it
+			w = gEngfuncs.Mod_PointInLeaf( p, WORLDMODEL->nodes, WORLDMODEL );
+			if( !w || !IsLiquidContents( w->contents ))
+				continue;
+			for( k = 0; k < n && hechas[k] != w; k++ );
+			if( k < n )
+				continue;
+			hechas[n++] = w;
+			gEngfuncs.R_FatPVS( p, r_pvs_radius->value, RI.visbytes, true, false );
+			if( n >= ARRAYSIZE( hechas ))
+				return;
+		}
+	}
+}
+
+/*
+===============
 R_MarkLeaves
 
 Mark the leaves and nodes that are in the PVS for the current leaf
@@ -3857,6 +3939,13 @@ void R_MarkLeaves( void )
 			force = true;
 	}
 
+	// custom: under the water, also what is seen from just above its surface (gl_agua.c): with the
+	// leaves of the eye alone, the bridge over the water was missing
+	vec3_t encima;
+	qboolean agua_encima = RI.viewleaf != NULL && R_AguaEncima( RI.rvp.vieworigin, encima );
+	if( agua_encima )
+		force = true;
+
 	if( RI.viewleaf == RI.oldviewleaf && RI.viewleaf != NULL && !force )
 		return;
 
@@ -3868,13 +3957,31 @@ void R_MarkLeaves( void )
 	tr.visframecount++;
 
 	// see-through walls need the whole map, not just the PVS of this leaf
-	// custom: a mirror is seen from behind its wall, the whole map too
-	if( r_novis.value || R_WallhackActive( ) || FBitSet( RI.rvp.flags, RF_DRAW_OVERVIEW ) || !RI.viewleaf || !WORLDMODEL->visdata || R_BumpDrawingPlanar( ))
-		novis = true;
+	// custom: a mirror is seen from behind its wall: what the eye sees from its own place
+	if( R_BumpDrawingPlanar( ))
+	{
+		mleaf_t *foot = gEngfuncs.Mod_PointInLeaf( R_BumpPlanarFoot( ), WORLDMODEL->nodes, WORLDMODEL );
 
-	gEngfuncs.R_FatPVS( RI.rvp.vieworigin, r_pvs_radius->value, RI.visbytes, false, novis );
+		gEngfuncs.R_FatPVS( R_BumpPlanarEye( ), r_pvs_radius->value, RI.visbytes, false, r_novis.value || !WORLDMODEL->visdata );
+		// and what is seen from the mirror itself: with the eye's alone, walls it does not see were
+		// missing in the reflection, and lamps behind them shone through
+		if( foot && foot->contents != CONTENTS_SOLID )
+			gEngfuncs.R_FatPVS( R_BumpPlanarFoot( ), r_pvs_radius->value, RI.visbytes, true, r_novis.value || !WORLDMODEL->visdata );
+		force = false;
+	}
+	else
+	{
+		if( r_novis.value || R_WallhackActive( ) || FBitSet( RI.rvp.flags, RF_DRAW_OVERVIEW ) || !RI.viewleaf || !WORLDMODEL->visdata )
+			novis = true;
+
+		gEngfuncs.R_FatPVS( RI.rvp.vieworigin, r_pvs_radius->value, RI.visbytes, false, novis );
+	}
 	if( force && !novis )
 		gEngfuncs.R_FatPVS( test, r_pvs_radius->value, RI.visbytes, true, novis );
+	if( agua_encima && !novis )
+		gEngfuncs.R_FatPVS( encima, r_pvs_radius->value, RI.visbytes, true, novis );
+	else if( !novis && !R_BumpDrawingPlanar( ) && R_AguaActiva( ))
+		R_AguaDebajo( );
 
 	for( int i = 0; i < WORLDMODEL->numleafs; i++ )
 	{

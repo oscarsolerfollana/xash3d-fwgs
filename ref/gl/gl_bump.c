@@ -14,6 +14,7 @@ GNU General Public License for more details.
 */
 
 #include "gl_local.h"
+#include "pm_local.h"
 
 /*
 A texture with a normal map next to its material,
@@ -61,8 +62,14 @@ CVAR_DEFINE_AUTO( r_bump_scale, "1", FCVAR_ARCHIVE, "custom: relief strength" );
 CVAR_DEFINE_AUTO( r_specular, "1", FCVAR_ARCHIVE, "custom: sun highlights on glossy surfaces" );
 CVAR_DEFINE_AUTO( r_reflect, "1", FCVAR_ARCHIVE, "custom: reflections on glossy surfaces" );
 CVAR_DEFINE_AUTO( r_reflect_dynamic, "1", FCVAR_ARCHIVE, "custom: reflections of what is around the player, drawn every frame" );
-CVAR_DEFINE_AUTO( r_reflect_dynamic_size, "128", FCVAR_ARCHIVE, "custom: pixels of each side of the reflections around the player (64, 128, 256)" );
-CVAR_DEFINE_AUTO( r_reflect_planes, "2", FCVAR_ARCHIVE, "custom: flat faces (door, floor) reflected as a mirror, drawing the view again (0 to 2)" );
+CVAR_DEFINE_AUTO( r_reflect_dynamic_size, "512", FCVAR_ARCHIVE, "custom: pixels of each side of the reflections around the player (64 to 512: the edges of what they reflect move by one of these pixels, so the bigger the smoother)" );
+CVAR_DEFINE_AUTO( r_debug_vista, "", 0, "custom: \"x y z pitch yaw\" puts the view there (for tests: the reflections seen from anywhere)" );
+CVAR_DEFINE_AUTO( r_reflect_debug, "0", 0, "custom: shows the planes that compete for the mirrors" );
+CVAR_DEFINE_AUTO( r_reflect_cube, "0", FCVAR_ARCHIVE, "custom: the rest of the faces that reflect, from six views around the player (approximate: what the player does not see goes wrong)" );
+CVAR_DEFINE_AUTO( r_reflect_bounces, "1", FCVAR_ARCHIVE, "custom: 2 the mirrors show the other mirrors too (the reflection of the reflection); Oscar: off, it did not show and cost frames" );
+CVAR_DEFINE_AUTO( r_reflect_cada, "2", FCVAR_ARCHIVE, "custom: each mirror drawn again every that many frames while the view barely changes (1 every frame): they cost the CPU, not the card" );
+CVAR_DEFINE_AUTO( r_reflect_medir, "0", 0, "custom: 1 prints every 300 frames how long the frame and the mirrors take (ms)" );
+CVAR_DEFINE_AUTO( r_reflect_planes, "4", FCVAR_ARCHIVE, "custom: flat faces (door, floor) reflected as a mirror, drawing the view again (0 to 10)" );
 CVAR_DEFINE_AUTO( r_reflect_dynamic_sides, "2", FCVAR_ARCHIVE, "custom: sides of the reflections around the player drawn each frame (1 to 6)" );
 CVAR_DEFINE_AUTO( r_reflect_probes, "0", FCVAR_ARCHIVE, "custom: fixed reflections of the map (probes taken when it loads) under the screen ones; Oscar: only the screen ones" );
 
@@ -72,6 +79,7 @@ CVAR_DEFINE_AUTO( r_reflect_probes, "0", FCVAR_ARCHIVE, "custom: fixed reflectio
 #define MAX_BUMP_TEXTURES	8192
 #define BUMP_REFLECT		1
 #define BUMP_RELIEF		2
+#define BUMP_PLANO		4	// fourth column of reflejos.txt: may be a mirror (r_reflect_planes); without it, always the cube
 #define MAX_PROBES		256
 #define PROBE_SIZE		64		// pixels of each of the six sides
 #define PROBE_JOIN		320.0f		// surfaces closer than this share a probe
@@ -92,13 +100,16 @@ static struct
 	qboolean	tried, ok;
 	GLhandleARB	prog;
 	GLint		u_T, u_B, u_N, u_sun, u_eye, u_hor, u_zen, u_suncol, u_bump, u_spec, u_refl;
-	GLint		u_r0, u_r1, u_r2, u_nprobes, u_po, u_pc, u_skyavg, u_ssr;
+	GLint		u_r0, u_r1, u_r2, u_nprobes, u_po, u_pc, u_skyavg, u_ssr, u_rug, u_plano;
 	const model_t	*world;
 	short		normalmap[MAX_BUMP_TEXTURES];	// -1 not looked for yet, 0 none
 	float		gloss[MAX_BUMP_TEXTURES];	// average shine of the normal map
+	float		blur[MAX_BUMP_TEXTURES];	// reflejos.txt third column: roughness of its mirror
+	float		brillok[MAX_BUMP_TEXTURES];	// command reflejo: shine times this (1), to try values in game
 	int		sky0;				// skybox the colours were taken from
 	char		*only;				// materials/maps/<map>.bsp/reflejos.txt: the textures that shine and reflect
 	char		*relief;			// and relieve.txt: the ones with relief
+	char		*ajuste;			// and reflejos_ajuste.txt: what reflejo_guardar wrote, over reflejos.txt
 	byte		flags[MAX_BUMP_TEXTURES];	// BUMP_REFLECT, BUMP_RELIEF
 	vec3_t		horizon, zenith;
 
@@ -114,6 +125,8 @@ static struct
 
 	// state while drawing
 	qboolean	active, reflects;
+	float		curblur;			// of the texture being drawn
+	qboolean	curplano;			// of the texture being drawn: BUMP_PLANO
 	texture_t	*current;
 	const short	*bound_list;			// probes of the last surface, in the uniforms
 } bump;
@@ -121,27 +134,39 @@ static struct
 // the view around the player
 static struct
 {
-	GLuint		color, depth;	// 4 x 2 sides, like the probes
+	// 4 x 2 sides, like the probes; two of them: the one the reflections read (front) and the one being drawn,
+	// a few sides a frame, all from the same place. With one, each side was of another place while walking
+	// (the last frames of it), read as if of one: the reflections jumped and shook
+	GLuint		color[2], depth[2];
 	GLuint		fbo, fcolor, fdepth;	// one side is drawn here (copying the depth of the window failed: zero, the reflections hit the surface itself)
-	int		size, next;
+	int		size, next, front;
 	qboolean	drawing, valid;
-	vec3_t		origin;
-	float		zfar[6];	// each side its own: the engine sets the far clip from what each one sees
+	vec3_t		origin[2];	// where all the sides of each were drawn from
+	float		zfar[2][6];	// each side its own: the engine sets the far clip from what each one sees
 } dyn;
 
 // mirrors: the planes of the faces that reflect, seen in the last frame; the nearest and
 // biggest are drawn again from the other side of the plane (the eye reflected on it)
-#define MAX_PLANES		2
-#define PLANE_CANDIDATES	32
-#define PLANE_MIN_AREA		12000.0f	// the door: two halves of 64 x 128
+#define MAX_PLANES		10	// gl_post.c MIRRORS too
+#define PLANE_CANDIDATES	256	// 32: far away the faces of the crates filled them before the door came
+#define PLANE_MIN_AREA		4000.0f		// a stack of crates, the flag poster; 12000 lost one half of the door out of the view, 2000 took the hidden sides between the halves
 
 static struct
 {
 	vec4_t		cand[PLANE_CANDIDATES];		// normal, distance (in the world)
 	float		weight[PLANE_CANDIDATES];	// how much of the view they take
 	float		area[PLANE_CANDIDATES];		// of all their faces: small ones (the crates) keep the cube
+	float		blur[PLANE_CANDIDATES];		// of their textures
 	int		ncand;
 	vec4_t		plane[MAX_PLANES];		// drawn this frame
+	vec4_t		clip;				// the plane the view being drawn is cut by
+	float		zfar[MAX_PLANES];
+	vec3_t		ang[MAX_PLANES];		// the angles of each mirror view
+	GLuint		fbo2, color2, depth2, copy;	// the second bounce: the view through two mirrors, and a copy of the first
+	float		pblur[MAX_PLANES];
+	qboolean	valid[MAX_PLANES];		// the image of that place holds its plane from a frame before
+	double		since[MAX_PLANES];		// when each mirror got its place (fade in, kept a while)
+	float		pfade[MAX_PLANES];
 	int		count;
 	GLuint		fbo[MAX_PLANES], color[MAX_PLANES], depth[MAX_PLANES];
 	int		w, h;
@@ -149,6 +174,10 @@ static struct
 	float		tanx, tany;
 	qboolean	drawing;
 	int		current;
+	vec3_t		maineye;			// the PVS of the mirrors: from the real eye
+	double		t0, tmir, tframe;		// r_reflect_medir
+	int		nframes, nmirrors, nreused, frame;
+	vec3_t		pvsfoot;			// and from the foot of the eye on the mirror (what the mirror sees that the eye does not)
 } planar;
 
 #ifndef GL_FRAMEBUFFER
@@ -180,7 +209,7 @@ static const char *fs_bump =
 "uniform vec3 T, B, N, sun, eye, horizon, zenith, suncol;\n"
 "uniform vec4 po[" XSTR( PROBES_PER_SURF ) "];\n"	// probes of the face: where, and their average brightness
 "uniform vec2 pc[" XSTR( PROBES_PER_SURF ) "];\n"	// and their place in the big texture
-"uniform float bump, spec, refl, nprobes, skyavg, ssr;\n"
+"uniform float bump, spec, refl, nprobes, skyavg, ssr, rug, plano;\n"
 "varying vec3 wpos;\n"
 "const float S = " XSTR( PROBE_SIZE ) ".0;\n"
 "const float RR = " XSTR( PROBE_RADIUS ) " * " XSTR( PROBE_RADIUS ) ";\n"
@@ -248,7 +277,341 @@ static const char *fs_bump =
 	// alpha: 1 minus how much it reflects, for the reflections of what is on the screen
 	// (gl_post.c); the rest of the view writes 1 there
 "	gl_FragColor = vec4( a.rgb * shade * ( 1.0 - k ) + env * k + suncol * s, a.a * ( 1.0 - kr * ssr )) * gl_Color;\n"
+	// for gl_post.c: the roughness (0 to 15) as twice the whole part, over 1 minus the strength, and 32 more
+	// if the texture may be a mirror (reflejos.txt, fourth column): each pixel knows it, not each plane
+"	if( ssr > 0.5 && kr > 0.0 ) gl_FragColor.a += 2.0 * floor( rug * 15.0 + 0.5 ) + 32.0 * plano;\n"
 "}\n";
+
+/*
+==============
+R_BumpReflejo_f
+
+reflejo [texture or start of the name] [shine] [roughness]: the values of the textures that shine,
+changed in game to try them (shine from 0, nothing, to 1, a whole mirror looking straight at it: the
+strength of the reflection at its average gloss, where the shader saturates; roughness from 0, a sharp
+mirror, to 1, the widest blur: RUGOSIDAD_MAX of the third column of reflejos.txt). Without a name, the texture under the crosshair; without values it shows them.
+A third value, 1 or 0: whether it may be a mirror (plano) or always the cube (fourth column of reflejos.txt).
+Or by words, for the texture under the crosshair and only what they say: reflejo plano, reflejo cubo,
+reflejo brillo 0.5, reflejo rugosidad 0.3 (together too: reflejo plano brillo 0.8).
+reflejos [start of the name]: only shows them; alone, all of them.
+reflejos_calidad alta|baja: mirrors for the marked textures and the cube for the rest, or the cube for all.
+reflejo_guardar writes them to materials/maps/<map>.bsp/reflejos.txt
+==============
+*/
+static int R_BumpNormalMap( texture_t *t, int index );
+static qboolean R_BumpSkipTexture( const texture_t *t );
+
+static vec3_t	mirada_org, mirada_ang;	// the view of the player, for reflejo (R_BumpPlanes)
+
+// the reflection of texture i looking straight at it with shine times 1, as the shader (fres * gloss * 2
+// at its average gloss): the shine of reflejo goes from 0 to 1 over it, 1 where it saturates
+static float R_BumpReflejoBase( int i )
+{
+	float g = bump.gloss[i];
+	return Q_max(( 0.15f + 0.5f * g ) * g * 2.0f, 0.01f );
+}
+
+#define RUGOSIDAD_MAX	0.3f	// the third column of reflejos.txt that blurs the lamps of a ceiling on the floor as much as the shader does (40 pixels)
+
+// the values of texture i, changed with the arguments from arg on
+// a word of reflejo for the texture under the crosshair: plano, cubo, brillo X, rugosidad X
+static qboolean R_BumpReflejoPalabra( const char *a )
+{
+	return !Q_stricmp( a, "plano" ) || !Q_stricmp( a, "cubo" ) || !Q_stricmp( a, "brillo" ) || !Q_stricmp( a, "rugosidad" );
+}
+
+static void R_BumpReflejoValores( texture_t *t, int i, int arg )
+{
+	float base = R_BumpReflejoBase( i );
+
+	if( gEngfuncs.Cmd_Argc() > arg && R_BumpReflejoPalabra( gEngfuncs.Cmd_Argv( arg )))
+	{
+		// by words, only what they say: reflejo plano, reflejo brillo 0.5 rugosidad 0.3
+		for( int k = arg; k < gEngfuncs.Cmd_Argc(); k++ )
+		{
+			const char *a = gEngfuncs.Cmd_Argv( k );
+
+			if( !Q_stricmp( a, "plano" )) SetBits( bump.flags[i], BUMP_PLANO );
+			else if( !Q_stricmp( a, "cubo" )) ClearBits( bump.flags[i], BUMP_PLANO );
+			else if( !Q_stricmp( a, "brillo" ) && k + 1 < gEngfuncs.Cmd_Argc())
+				{ k++; bump.brillok[i] = bound( 0.0f, Q_atof( gEngfuncs.Cmd_Argv( k )), 1.0f ) / base; }	// k apart: Cmd_Argv is a macro, ++k in it went two on
+			else if( !Q_stricmp( a, "rugosidad" ) && k + 1 < gEngfuncs.Cmd_Argc())
+				{ k++; bump.blur[i] = bound( 0.0f, Q_atof( gEngfuncs.Cmd_Argv( k )), 1.0f ) * RUGOSIDAD_MAX; }
+		}
+		arg = 99;
+	}
+	if( gEngfuncs.Cmd_Argc() > arg ) bump.brillok[i] = bound( 0.0f, Q_atof( gEngfuncs.Cmd_Argv( arg )), 1.0f ) / base;
+	if( gEngfuncs.Cmd_Argc() > arg + 1 ) bump.blur[i] = bound( 0.0f, Q_atof( gEngfuncs.Cmd_Argv( arg + 1 )), 1.0f ) * RUGOSIDAD_MAX;
+	if( gEngfuncs.Cmd_Argc() > arg + 2 )
+	{
+		if( Q_atoi( gEngfuncs.Cmd_Argv( arg + 2 ))) SetBits( bump.flags[i], BUMP_PLANO );
+		else ClearBits( bump.flags[i], BUMP_PLANO );
+	}
+	gEngfuncs.Con_Printf( "%-16s brillo %.2f  rugosidad %.2f  %s\n", t->name, Q_min( base * bump.brillok[i], 1.0f ), Q_min( bump.blur[i] / RUGOSIDAD_MAX, 1.0f ),
+		FBitSet( bump.flags[i], BUMP_PLANO ) ? "plano" : "cubo" );
+}
+
+// the textures whose name starts with the first argument; cambiar: with the values after it
+static void R_BumpReflejoNombre( const char *cmd, qboolean cambiar )
+{
+	const char *pref = gEngfuncs.Cmd_Argc() > 1 ? gEngfuncs.Cmd_Argv( 1 ) : "";
+	int i, n = 0;
+
+	if( !WORLDMODEL )
+		return;
+	for( i = 0; i < WORLDMODEL->numtextures && i < MAX_BUMP_TEXTURES; i++ )
+	{
+		texture_t *t = WORLDMODEL->textures[i];
+
+		if( !t || R_BumpSkipTexture( t ) || Q_strnicmp( t->name, pref, Q_strlen( pref )))
+			continue;
+		R_BumpNormalMap( t, i );
+		if( !FBitSet( bump.flags[i], BUMP_REFLECT ))
+			continue;
+		R_BumpReflejoValores( t, i, cambiar ? 2 : 99 );
+		n++;
+	}
+	if( !n )
+		gEngfuncs.Con_Printf( "%s: no texture that reflects starts with \"%s\" (the ones in reflejos.txt)\n", cmd, pref );
+}
+
+static void R_BumpReflejos_f( void )
+{
+	R_BumpReflejoNombre( "reflejos", false );
+}
+
+static void R_BumpReflejo_f( void )
+{
+	vec3_t fwd, end;
+	pmtrace_t traza;
+	msurface_t *surf;
+	texture_t *t;
+	int i;
+
+	if( !WORLDMODEL )
+		return;
+	if( gEngfuncs.Cmd_Argc() > 1 )
+	{
+		const char *a = gEngfuncs.Cmd_Argv( 1 );
+
+		if( !(( a[0] >= '0' && a[0] <= '9' ) || a[0] == '.' ) && !R_BumpReflejoPalabra( a ))
+		{
+			R_BumpReflejoNombre( "reflejo", true );	// a name: those textures
+			return;
+		}
+	}
+	AngleVectors( mirada_ang, fwd, NULL, NULL );
+	VectorMA( mirada_org, 8192.0f, fwd, end );
+	traza = gEngfuncs.CL_TraceLine( mirada_org, end, PM_STUDIO_IGNORE );
+	surf = gEngfuncs.EV_TraceSurface( traza.ent > 0 ? traza.ent : 0, mirada_org, end );
+	if( !surf || !surf->texinfo || !( t = surf->texinfo->texture ))
+	{
+		gEngfuncs.Con_Printf( "reflejo: no texture under the crosshair\n" );
+		return;
+	}
+	for( i = 0; i < WORLDMODEL->numtextures && i < MAX_BUMP_TEXTURES; i++ )
+		if( WORLDMODEL->textures[i] == t )
+			break;
+	if( i >= WORLDMODEL->numtextures || i >= MAX_BUMP_TEXTURES || R_BumpSkipTexture( t ))
+	{
+		gEngfuncs.Con_Printf( "%-16s (not a texture of the map)\n", t->name );
+		return;
+	}
+	R_BumpNormalMap( t, i );
+	if( !FBitSet( bump.flags[i], BUMP_REFLECT ))
+	{
+		gEngfuncs.Con_Printf( "%-16s does not reflect (not in reflejos.txt)\n", t->name );
+		return;
+	}
+	R_BumpReflejoValores( t, i, 1 );
+}
+
+// alta: the marked textures as mirrors, the rest with the cube; baja: all with the cube
+static void R_BumpReflejosCalidad_f( void )
+{
+	const char *q = gEngfuncs.Cmd_Argc() > 1 ? gEngfuncs.Cmd_Argv( 1 ) : "";
+
+	if( !Q_stricmp( q, "alta" ))
+	{
+		gEngfuncs.Cvar_Set( "r_reflect_planes", r_reflect_planes.value > 0.0f ? r_reflect_planes.string : "4" );
+	}
+	else if( !Q_stricmp( q, "baja" ))
+	{
+		gEngfuncs.Cvar_Set( "r_reflect_planes", "0" );
+	}
+	else
+	{
+		gEngfuncs.Con_Printf( "reflejos_calidad alta|baja (now %s: %d mirrors)\n", r_reflect_planes.value > 0.0f ? "alta" : "baja", (int)r_reflect_planes.value );
+		return;
+	}
+	gEngfuncs.Cvar_Set( "r_reflect", "1" );
+	gEngfuncs.Cvar_Set( "r_reflect_dynamic", "1" );
+	gEngfuncs.Cvar_Set( "r_reflect_cube", "1" );
+	gEngfuncs.Cvar_Set( "r_ssr", "0" );
+	gEngfuncs.Con_Printf( "reflejos_calidad %s: %d mirrors, the cube for the rest\n", q, (int)r_reflect_planes.value );
+}
+
+static int R_BumpNormalMap( texture_t *t, int index );
+
+// a number as short as it reads: 0.21, 1, 0.5
+static void R_BumpNumero( char *buf, size_t size, float v )
+{
+	char *e;
+
+	Q_snprintf( buf, size, "%.3f", v );
+	e = buf + Q_strlen( buf ) - 1;
+	while( e > buf && *e == '0' ) *e-- = 0;
+	if( *e == '.' ) *e = 0;
+}
+
+/*
+reflejo_guardar: the values of reflejo into reflejos.txt itself, its comments and order kept. The line of a
+texture (the first whose name starts its name, as R_BumpListed reads it) takes them: in its columns if
+it is the line of that texture alone, or a line of its own just before it if it is of several (ammo0).
+Columns: brillo for normales.py (baked into the _norm, not read here: kept), roughness, plano, and a
+fourth, the shine of reflejo (times the baked one), only when it is not 1.
+*/
+static void R_BumpReflejoGuardar_f( void )
+{
+	char	path[256], mapa[64], *out;
+	byte	hecha[MAX_BUMP_TEXTURES];
+	const char *p;
+	size_t	cap, n = 0;
+	int	cambios = 0;
+	file_t	*f;
+
+	if( !WORLDMODEL )
+		return;
+	if( !bump.only )
+	{
+		gEngfuncs.Con_Printf( "reflejo_guardar: this map has no reflejos.txt\n" );
+		return;
+	}
+	COM_FileBase( WORLDMODEL->name, mapa, sizeof( mapa ));
+	memset( hecha, 0, sizeof( hecha ));
+	for( int i = 0; i < WORLDMODEL->numtextures && i < MAX_BUMP_TEXTURES; i++ )
+		if( WORLDMODEL->textures[i] && bump.normalmap[i] < 0 )
+			R_BumpNormalMap( WORLDMODEL->textures[i], i );	// its values read, though not seen yet
+	cap = Q_strlen( bump.only ) + WORLDMODEL->numtextures * 96 + 256;
+	out = Mem_Malloc( r_temppool, cap );
+
+	for( p = bump.only; *p; )
+	{
+		const char *ls = p, *le = p, *w, *q;
+		float c[5] = { -1.0f, -1.0f, -1.0f, -1.0f, -1.0f };
+		char c1[32] = "1", linea[256];
+		int wl, nc = 0, propia = -1;
+
+		while( *le && *le != '\n' ) le++;
+		p = *le ? le + 1 : le;
+
+		for( w = ls; w < le && ( *w == ' ' || *w == '\t' ); w++ );
+		for( q = w; q < le && *q != ' ' && *q != '\t' && *q != '\r'; q++ );
+		wl = q - w;
+		linea[0] = 0;
+		if( wl > 0 && *w != '#' )
+		{
+			// its columns
+			while( nc < 4 )
+			{
+				char *end;
+				float v;
+
+				while( q < le && ( *q == ' ' || *q == '\t' )) q++;
+				if( q >= le || *q == '\r' ) break;
+				v = strtod( q, &end );
+				if( end == q ) break;
+				if( nc == 0 ) Q_strncpy( c1, q, Q_min( (int)sizeof( c1 ), (int)( end - q ) + 1 ));
+				c[++nc] = v;
+				q = end;
+			}
+			for( int i = 0; i < WORLDMODEL->numtextures && i < MAX_BUMP_TEXTURES; i++ )
+			{
+				texture_t *t = WORLDMODEL->textures[i];
+				float rug, pl, br;
+				char a[16], b[16];
+
+				if( !t || hecha[i] || Q_strnicmp( t->name, w, wl ))
+					continue;
+				hecha[i] = 1;
+				if( bump.normalmap[i] < 0 || !FBitSet( bump.flags[i], BUMP_REFLECT ))
+					continue;	// not drawn yet, or not reflecting: as it is
+				rug = c[2] >= 0.0f ? c[2] : 0.0f;
+				pl = c[3] >= 0.0f ? c[3] : 0.0f;
+				br = c[4] >= 0.0f ? c[4] : 1.0f;
+				if( fabs( rug - bump.blur[i] ) < 0.0005f && ( pl > 0.5f ) == ( FBitSet( bump.flags[i], BUMP_PLANO ) != 0 ) && fabs( br - bump.brillok[i] ) < 0.005f )
+					continue;	// already so
+				if( Q_strlen( t->name ) == wl )
+				{
+					propia = i;	// its own line: its columns
+					continue;
+				}
+				// a line of its own before the one of several
+				R_BumpNumero( a, sizeof( a ), bump.blur[i] );
+				R_BumpNumero( b, sizeof( b ), bump.brillok[i] );
+				if( fabs( bump.brillok[i] - 1.0f ) < 0.005f ) b[0] = 0;
+				n += Q_snprintf( out + n, cap - n, "%s %s %s %d%s%s\n", t->name, c1, a, FBitSet( bump.flags[i], BUMP_PLANO ) ? 1 : 0, b[0] ? " " : "", b );
+				cambios++;
+			}
+			if( propia >= 0 )
+			{
+				char a[16], b[16], nombre[64];
+
+				Q_strncpy( nombre, w, Q_min( (int)sizeof( nombre ), wl + 1 ));
+				R_BumpNumero( a, sizeof( a ), bump.blur[propia] );
+				R_BumpNumero( b, sizeof( b ), bump.brillok[propia] );
+				if( fabs( bump.brillok[propia] - 1.0f ) < 0.005f ) b[0] = 0;
+				Q_snprintf( linea, sizeof( linea ), "%s %s %s %d%s%s\n", nombre, c1, a, FBitSet( bump.flags[propia], BUMP_PLANO ) ? 1 : 0, b[0] ? " " : "", b );
+				cambios++;
+			}
+		}
+		if( linea[0] )
+			n += Q_snprintf( out + n, cap - n, "%s", linea );
+		else
+		{
+			size_t l = Q_min( (size_t)( le - ls ), cap - n - 2 );
+			while( l > 0 && ls[l-1] == '\r' ) l--;
+			memcpy( out + n, ls, l );
+			n += l;
+			if( *le ) out[n++] = '\n';
+		}
+		out[n] = 0;
+	}
+
+	if( !cambios )
+	{
+		gEngfuncs.Con_Printf( "reflejo_guardar: reflejos.txt already has them\n" );
+		Mem_Free( out );
+		return;
+	}
+	// the one before, once
+	Q_snprintf( path, sizeof( path ), "materials/maps/%s.bsp/reflejos.txt.antes", mapa );
+	if( !gEngfuncs.fsapi->FileExists( path, true ) && ( f = gEngfuncs.fsapi->Open( path, "w", true )))
+	{
+		gEngfuncs.fsapi->Write( f, bump.only, Q_strlen( bump.only ));
+		gEngfuncs.fsapi->Close( f );
+	}
+	Q_snprintf( path, sizeof( path ), "materials/maps/%s.bsp/reflejos.txt", mapa );
+	if( !( f = gEngfuncs.fsapi->Open( path, "w", true )))
+	{
+		gEngfuncs.Con_Printf( S_ERROR "reflejo_guardar: can't write %s\n", path );
+		Mem_Free( out );
+		return;
+	}
+	gEngfuncs.fsapi->Write( f, out, n );
+	gEngfuncs.fsapi->Close( f );
+	Mem_Free( bump.only );
+	bump.only = out;
+	// what reflejo_guardar wrote before apart: now in reflejos.txt
+	if( bump.ajuste )
+	{
+		Mem_Free( bump.ajuste );
+		bump.ajuste = NULL;
+		Q_snprintf( path, sizeof( path ), "materials/maps/%s.bsp/reflejos_ajuste.txt", mapa );
+		gEngfuncs.fsapi->Delete( path );
+	}
+	gEngfuncs.Con_Printf( "reflejo_guardar: %d changes in materials/maps/%s.bsp/reflejos.txt\n", cambios, mapa );
+}
 
 void R_InitBump( void )
 {
@@ -261,6 +624,16 @@ void R_InitBump( void )
 	gEngfuncs.Cvar_RegisterVariable( &r_reflect_dynamic_size );
 	gEngfuncs.Cvar_RegisterVariable( &r_reflect_dynamic_sides );
 	gEngfuncs.Cvar_RegisterVariable( &r_reflect_planes );
+	gEngfuncs.Cvar_RegisterVariable( &r_reflect_medir );
+	gEngfuncs.Cvar_RegisterVariable( &r_reflect_cada );
+	gEngfuncs.Cvar_RegisterVariable( &r_reflect_bounces );
+	gEngfuncs.Cvar_RegisterVariable( &r_reflect_cube );
+	gEngfuncs.Cvar_RegisterVariable( &r_reflect_debug );
+	gEngfuncs.Cvar_RegisterVariable( &r_debug_vista );
+	gEngfuncs.Cmd_AddCommand( "reflejos", R_BumpReflejos_f, "custom: reflejos [start of the name]: the values of the textures that reflect" );
+	gEngfuncs.Cmd_AddCommand( "reflejo", R_BumpReflejo_f, "custom: reflejo [texture] [shine] [roughness]: changes them (without a name, the texture under the crosshair)" );
+	gEngfuncs.Cmd_AddCommand( "reflejos_calidad", R_BumpReflejosCalidad_f, "custom: alta, mirrors for the textures marked plano in reflejos.txt and the cube for the rest; baja, the cube for all" );
+	gEngfuncs.Cmd_AddCommand( "reflejo_guardar", R_BumpReflejoGuardar_f, "custom: writes the values of reflejo to materials/maps/<map>.bsp/reflejos.txt" );
 	memset( &bump, 0, sizeof( bump ));
 }
 
@@ -334,6 +707,8 @@ static qboolean R_BumpProgram( void )
 	bump.u_pc = pglGetUniformLocationARB( bump.prog, "pc" );
 	bump.u_skyavg = pglGetUniformLocationARB( bump.prog, "skyavg" );
 	bump.u_ssr = pglGetUniformLocationARB( bump.prog, "ssr" );
+	bump.u_rug = pglGetUniformLocationARB( bump.prog, "rug" );
+	bump.u_plano = pglGetUniformLocationARB( bump.prog, "plano" );
 	pglUseProgramObjectARB( 0 );
 	bump.ok = true;
 	return true;
@@ -430,7 +805,9 @@ static void R_BumpCheckWorld( void )
 		Mem_Free( bump.only );
 	if( bump.relief )
 		Mem_Free( bump.relief );
-	bump.only = bump.relief = NULL;
+	if( bump.ajuste )
+		Mem_Free( bump.ajuste );
+	bump.only = bump.relief = bump.ajuste = NULL;
 	if( WORLDMODEL )
 	{
 		char path[256], mapa[64];
@@ -440,14 +817,19 @@ static void R_BumpCheckWorld( void )
 		bump.only = (char *)gEngfuncs.fsapi->LoadFile( path, NULL, false );
 		Q_snprintf( path, sizeof( path ), "materials/maps/%s.bsp/relieve.txt", mapa );
 		bump.relief = (char *)gEngfuncs.fsapi->LoadFile( path, NULL, false );
+		Q_snprintf( path, sizeof( path ), "materials/maps/%s.bsp/reflejos_ajuste.txt", mapa );
+		bump.ajuste = (char *)gEngfuncs.fsapi->LoadFile( path, NULL, false );
 	}
 	bump.sky0 = 0;
 	R_BumpFreeProbes();
 }
 
-// a texture in a list: "name" or the start of the name, one per line, # comments
-static qboolean R_BumpListed( const char *p, const char *name )
+// a texture in a list: "name" or the start of the name, one per line, # comments;
+// col: the value in that column of its line (1 the first after the name), or -1
+static qboolean R_BumpListed( const char *p, const char *name, int col, float *value )
 {
+	if( value )
+		*value = -1.0f;
 	while( *p )
 	{
 		char word[64];
@@ -469,7 +851,25 @@ static qboolean R_BumpListed( const char *p, const char *name )
 		}
 		word[n] = 0;
 		if( n && !Q_strnicmp( name, word, n ))
+		{
+			int c;
+
+			for( c = 1; value && c <= col; c++ )
+			{
+				char *end;
+				float v;
+
+				while( *p == ' ' || *p == '\t' )
+					p++;
+				v = strtod( p, &end );
+				if( end == p )
+					break;
+				p = end;
+				if( c == col )
+					*value = v;
+			}
 			return true;
+		}
 		while( *p && *p != '\n' )	// the rest of the line (a value, for normales.py)
 			p++;
 	}
@@ -490,9 +890,41 @@ static int R_BumpNormalMap( texture_t *t, int index )
 	// reflejos.txt: only the textures in it shine and reflect (all, without it);
 	// relieve.txt: only those have relief (none, without it); the rest are drawn as always
 	bump.flags[index] = 0;
-	if( !bump.only || R_BumpListed( bump.only, t->name ))
+	bump.blur[index] = 0.0f;
+	if( !bump.only || R_BumpListed( bump.only, t->name, 2, &bump.blur[index] ))
 		bump.flags[index] |= BUMP_REFLECT;
-	if( bump.relief && R_BumpListed( bump.relief, t->name ))
+	bump.blur[index] = Q_max( bump.blur[index], 0.0f );
+	{
+		float plano = 1.0f;	// without reflejos.txt all may be mirrors, as before
+
+		if( bump.only && !R_BumpListed( bump.only, t->name, 3, &plano ))
+			plano = 0.0f;
+		if( plano > 0.5f && FBitSet( bump.flags[index], BUMP_REFLECT ))
+			bump.flags[index] |= BUMP_PLANO;
+	}
+	bump.brillok[index] = 1.0f;
+	if( bump.only )
+	{
+		float v;
+		if( R_BumpListed( bump.only, t->name, 4, &v ) && v >= 0.0f )
+			bump.brillok[index] = v;	// fourth column: the shine of reflejo, saved by reflejo_guardar
+	}
+	// what was tried in game and saved (reflejo_guardar): its shine, roughness and plano, over reflejos.txt;
+	// without reading it, a texture turned to plano was the cube again after a retry
+	if( bump.ajuste && R_BumpListed( bump.ajuste, t->name, 0, NULL ))
+	{
+		float v;
+
+		bump.flags[index] |= BUMP_REFLECT;
+		if( R_BumpListed( bump.ajuste, t->name, 1, &v ) && v >= 0.0f ) bump.brillok[index] = v;
+		if( R_BumpListed( bump.ajuste, t->name, 2, &v ) && v >= 0.0f ) bump.blur[index] = v;
+		if( R_BumpListed( bump.ajuste, t->name, 3, &v ) && v >= 0.0f )
+		{
+			if( v > 0.5f ) bump.flags[index] |= BUMP_PLANO;
+			else bump.flags[index] &= ~BUMP_PLANO;
+		}
+	}
+	if( bump.relief && R_BumpListed( bump.relief, t->name, 0, NULL ))
 		bump.flags[index] |= BUMP_RELIEF;
 	bump.normalmap[index] = 0;
 	bump.gloss[index] = 0.0f;
@@ -513,6 +945,7 @@ static int R_BumpNormalMap( texture_t *t, int index )
 		R_BumpAverage( texnum, c, false );
 		bump.gloss[index] = c[3];
 	}
+	gEngfuncs.Con_DPrintf( "bump: %s flags %d normal map %d gloss %.2f\n", t->name, bump.flags[index], texnum, bump.gloss[index] );
 	return bump.normalmap[index];
 }
 
@@ -724,18 +1157,24 @@ void R_BumpDynamic( const ref_viewpass_t *rvp )
 	if( rvp->viewport[2] != gpGlobals->width || rvp->viewport[3] != gpGlobals->height )
 		return;
 
-	for( size = 64; size < r_reflect_dynamic_size.value && size < 256; size <<= 1 );
+	for( size = 64; size < r_reflect_dynamic_size.value && size < 512; size <<= 1 );
 	if( size > gpGlobals->width || size > gpGlobals->height )
 		return;
-	if( !dyn.color || dyn.size != size )
+	if( !dyn.color[0] || dyn.size != size )
 	{
-		if( dyn.color ) pglDeleteTextures( 1, &dyn.color );
-		if( dyn.depth ) pglDeleteTextures( 1, &dyn.depth );
+		for( i = 0; i < 2; i++ )
+		{
+			if( dyn.color[i] ) pglDeleteTextures( 1, &dyn.color[i] );
+			if( dyn.depth[i] ) pglDeleteTextures( 1, &dyn.depth[i] );
+		}
 		if( dyn.fcolor ) pglDeleteTextures( 1, &dyn.fcolor );
 		if( dyn.fdepth ) pglDeleteTextures( 1, &dyn.fdepth );
 		if( dyn.fbo ) pglDeleteFramebuffers( 1, &dyn.fbo );
-		dyn.color = R_BumpDynamicTexture( size * 4, size * 2, GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, GL_LINEAR );
-		dyn.depth = R_BumpDynamicTexture( size * 4, size * 2, GL_DEPTH_COMPONENT24, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, GL_NEAREST );
+		for( i = 0; i < 2; i++ )
+		{
+			dyn.color[i] = R_BumpDynamicTexture( size * 4, size * 2, GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, GL_LINEAR );
+			dyn.depth[i] = R_BumpDynamicTexture( size * 4, size * 2, GL_DEPTH_COMPONENT24, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, GL_NEAREST );
+		}
 		dyn.fcolor = R_BumpDynamicTexture( size, size, GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, GL_NEAREST );
 		dyn.fdepth = R_BumpDynamicTexture( size, size, GL_DEPTH_COMPONENT24, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, GL_NEAREST );
 		pglGenFramebuffers( 1, &dyn.fbo );
@@ -755,32 +1194,47 @@ void R_BumpDynamic( const ref_viewpass_t *rvp )
 		dyn.size = size;
 		dyn.valid = false;
 		dyn.next = 0;
+		dyn.front = 0;
 	}
 	if( !dyn.fbo )
 		return;
 
-	n = dyn.valid && VectorCompare( dyn.origin, rvp->vieworigin ) ? bound( 1, (int)r_reflect_dynamic_sides.value, 6 ) : 6;
+	// a few sides a frame, also while moving: all six each frame of walking (each one the whole view again)
+	// took the frame from over 150 to under 40 with players around; only a jump (respawn, teleport) does all
+	n = bound( 1, (int)r_reflect_dynamic_sides.value, 6 );
+	if( !dyn.valid || VectorDistance( dyn.origin[dyn.front], rvp->vieworigin ) >= 64.0f )
+	{
+		n = 6;	// all at once, from here
+		dyn.next = 0;
+	}
+	if( !r_reflect_cube.value )
+		n = 0;	// only the mirrors
 	dyn.drawing = true;
 	for( i = 0; i < n; i++ )
 	{
-		int j = dyn.next;
+		int j = dyn.next, b = dyn.front ^ 1;
 
+		if( j == 0 )
+			VectorCopy( rvp->vieworigin, dyn.origin[b] );	// all the sides of this one from here
 		dyn.next = ( dyn.next + 1 ) % 6;
 		pglBindFramebuffer( GL_FRAMEBUFFER, dyn.fbo );
-		R_DrawCubemapView( rvp->vieworigin, probe_angles[j], size );
-		dyn.zfar[j] = Q_max( 256.0f, RI.farClip );
+		R_DrawCubemapView( dyn.origin[b], probe_angles[j], size );
+		dyn.zfar[b][j] = Q_max( 256.0f, RI.farClip );
 		pglBindFramebuffer( GL_FRAMEBUFFER, dyn.fbo );	// still the side: the copies read from it
-		pglBindTexture( GL_TEXTURE_2D, dyn.color );
+		pglBindTexture( GL_TEXTURE_2D, dyn.color[b] );
 		pglCopyTexSubImage2D( GL_TEXTURE_2D, 0, ( j % 4 ) * size, ( j / 4 ) * size, 0, 0, size, size );
-		pglBindTexture( GL_TEXTURE_2D, dyn.depth );
+		pglBindTexture( GL_TEXTURE_2D, dyn.depth[b] );
 		pglCopyTexSubImage2D( GL_TEXTURE_2D, 0, ( j % 4 ) * size, ( j / 4 ) * size, 0, 0, size, size );
+		if( dyn.next == 0 )
+		{
+			dyn.front = b;	// complete: the reflections read it now
+			dyn.valid = true;
+		}
 	}
 	pglBindFramebuffer( GL_FRAMEBUFFER, 0 );
 	dyn.drawing = false;
 	glState.currentTextures[glState.activeTMU] = -1;
 	glState.currentTexturesIndex[glState.activeTMU] = -1;
-	VectorCopy( rvp->vieworigin, dyn.origin );
-	dyn.valid = true;
 
 	R_BumpPlanes( rvp );
 }
@@ -793,19 +1247,150 @@ the mirrors: the biggest planes seen in the last frame, drawn from the eye refle
 cutting what is behind the plane
 ==============
 */
+/*
+==============
+R_BumpBounces
+
+the second bounce: for each pair of mirrors (k, j), the view of mirror k through mirror j
+(its eye reflected again on j), put on the image of mirror k where it sees j
+==============
+*/
+static void R_BumpBounces( int w, int h, float fov, float ty )
+{
+	int k, j, npares = 0;
+	float zfar2 = 4096.0f;
+	qboolean ok;
+
+	if( !planar.fbo2 )
+	{
+		planar.color2 = R_BumpDynamicTexture( w, h, GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, GL_LINEAR );
+		planar.depth2 = R_BumpDynamicTexture( w, h, GL_DEPTH_COMPONENT24, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, GL_NEAREST );
+		planar.copy = R_BumpDynamicTexture( w, h, GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, GL_NEAREST );
+		pglGenFramebuffers( 1, &planar.fbo2 );
+		pglBindFramebuffer( GL_FRAMEBUFFER, planar.fbo2 );
+		pglFramebufferTexture2D( GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, planar.color2, 0 );
+		pglFramebufferTexture2D( GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, planar.depth2, 0 );
+		if( pglCheckFramebufferStatus( GL_FRAMEBUFFER ) != GL_FRAMEBUFFER_COMPLETE )
+		{
+			gEngfuncs.Con_Printf( S_ERROR "r_reflect_bounces: framebuffer incomplete\n" );
+			pglDeleteFramebuffers( 1, &planar.fbo2 );
+			planar.fbo2 = 0;
+			return;
+		}
+	}
+
+	for( k = 0; k < planar.count; k++ )
+	{
+		qboolean copied = false;
+
+		for( j = 0; j < planar.count; j++ )
+		{
+			ref_viewpass_t v;
+			vec3_t f, r, u, eye2, vf2, vr2, vu2;
+			float hgt;
+
+			if( j == k )
+				continue;
+			// the eye of mirror k has to be in front of mirror j (a floor seen from under another: no)
+			hgt = DotProduct( planar.plane[j], planar.eye[k] ) - planar.plane[j][3];
+			if( hgt < 1.0f )
+				continue;
+
+			memset( &v, 0, sizeof( v ));
+			SetBits( v.flags, RF_DRAW_WORLD|RF_DRAW_CUBEMAP );
+			v.viewport[2] = w;
+			v.viewport[3] = h;
+			v.fov_x = fov;
+			v.fov_y = atan( ty ) * 360.0f / M_PI_F;
+			VectorMA( planar.eye[k], -2.0f * hgt, planar.plane[j], v.vieworigin );
+			AngleVectors( planar.ang[k], f, r, u );
+			VectorMA( f, -2.0f * DotProduct( f, planar.plane[j] ), planar.plane[j], f );
+			v.viewangles[PITCH] = -asin( bound( -1.0f, f[2], 1.0f )) * 180.0f / M_PI_F;
+			v.viewangles[YAW] = atan2( f[1], f[0] ) * 180.0f / M_PI_F;
+			v.viewangles[ROLL] = 0.0f;
+
+			Vector4Copy( planar.plane[j], planar.clip );
+			VectorMA( planar.maineye, 4.0f - ( DotProduct( planar.plane[j], planar.maineye ) - planar.plane[j][3] ), planar.plane[j], planar.pvsfoot );
+			pglBindFramebuffer( GL_FRAMEBUFFER, planar.fbo2 );
+			RI.viewleaf = NULL;
+			R_RenderFrame( &v );
+			RI.viewleaf = NULL;
+			pglDisable( GL_CLIP_PLANE0 );
+			zfar2 = Q_max( 256.0f, RI.farClip );
+			VectorCopy( v.vieworigin, eye2 );
+			VectorCopy( RI.vforward, vf2 );
+			VectorCopy( RI.vright, vr2 );
+			VectorCopy( RI.vup, vu2 );
+
+			// the image of mirror k as it was, to read from while writing on it
+			if( !copied )
+			{
+				pglBindFramebuffer( GL_FRAMEBUFFER, planar.fbo[k] );
+				GL_SelectTexture( XASH_TEXTURE0 );
+				pglBindTexture( GL_TEXTURE_2D, planar.copy );
+				pglCopyTexSubImage2D( GL_TEXTURE_2D, 0, 0, 0, 0, 0, w, h );
+				glState.currentTextures[glState.activeTMU] = -1;
+				copied = true;
+			}
+			// its depth is read while drawing on it: out of the framebuffer meanwhile
+			pglBindFramebuffer( GL_FRAMEBUFFER, planar.fbo[k] );
+			pglFramebufferTexture2D( GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, 0, 0 );
+			ok = R_PostMirrorBounce( planar.fbo[k], planar.copy, planar.depth[k], w, h, planar.eye[k], planar.vf[k], planar.vr[k], planar.vu[k],
+				planar.tanx, planar.tany, planar.zfar[k], planar.plane[j], planar.color2, planar.depth2, zfar2, eye2, vf2, vr2, vu2, planar.pblur[j] );
+			pglBindFramebuffer( GL_FRAMEBUFFER, planar.fbo[k] );
+			pglFramebufferTexture2D( GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, planar.depth[k], 0 );
+			if( r_reflect_debug.value )
+				gEngfuncs.Con_NPrintf( 18 + npares, "bounce: mirror %d shows mirror %d (eye %.0f %.0f %.0f)", k, j, eye2[0], eye2[1], eye2[2] );
+			npares++;
+			if( !ok )
+				return;
+		}
+	}
+}
+
 static void R_BumpPlanes( const ref_viewpass_t *rvp )
 {
-	int w = gpGlobals->width / 2, h = gpGlobals->height / 2;
+	VectorCopy( rvp->vieworigin, mirada_org );
+	VectorCopy( rvp->viewangles, mirada_ang );
+	if( r_reflect_medir.value )
+	{
+		double now = gEngfuncs.pfnTime();
+		if( planar.tframe > 0.0 && planar.nframes >= 300 )
+		{
+			gEngfuncs.Con_Printf( "medir: frame %.2f ms, mirrors %.2f ms (%.1f mirrors, %.1f reused)\n", ( now - planar.tframe ) * 1000.0 / planar.nframes,
+				planar.tmir * 1000.0 / planar.nframes, (float)planar.nmirrors / planar.nframes, (float)planar.nreused / planar.nframes );
+			planar.nreused = 0;
+			planar.nframes = 0;
+			planar.nmirrors = 0;
+			planar.tmir = 0.0;
+			planar.tframe = now;
+		}
+		if( planar.tframe <= 0.0 ) planar.tframe = now;
+		planar.nframes++;
+	}
+	else planar.tframe = 0.0;
+
+	int w = gpGlobals->width, h = gpGlobals->height;	// full size, they are seen like a mirror
 	int i, j, k, want = bound( 0, (int)r_reflect_planes.value, MAX_PLANES );
 	float tx, ty, fov;
 	vec4_t chosen[MAX_PLANES];
+	float chosenblur[MAX_PLANES];
+	double chosensince[MAX_PLANES];
 	int nchosen = 0;
 
-	// the ones already drawn keep their place unless another is clearly bigger (no jumping between two)
+	// the ones already drawn keep their place unless another is clearly bigger (no jumping between two),
+	// and for a second after they got it, whatever: with many metal walls (ns_ayumi) they came and went
+	double candsince[PLANE_CANDIDATES];
 	for( i = 0; i < planar.ncand; i++ )
+	{
+		candsince[i] = gp_host->realtime;
 		for( j = 0; j < planar.count; j++ )
 			if( DotProduct( planar.cand[i], planar.plane[j] ) > 0.999f && fabs( planar.cand[i][3] - planar.plane[j][3] ) < 1.0f )
-				planar.weight[i] *= 1.5f;
+			{
+				planar.weight[i] *= gp_host->realtime - planar.since[j] < 1.0 ? 1000.0f : 4.0f;
+				candsince[i] = planar.since[j];
+			}
+	}
 	for( k = 0; k < want; k++ )
 	{
 		int best = -1;
@@ -815,11 +1400,27 @@ static void R_BumpPlanes( const ref_viewpass_t *rvp )
 		if( best < 0 )
 			break;
 		Vector4Copy( planar.cand[best], chosen[nchosen] );
+		chosenblur[nchosen] = planar.blur[best];
+		chosensince[nchosen] = candsince[best];
 		nchosen++;
 		planar.weight[best] = 0.0f;
 	}
+	if( r_reflect_debug.value )
+	{
+		gEngfuncs.Con_NPrintf( 4, "mirrors %d, candidates %d", nchosen, planar.ncand );
+		for( i = 0, j = 0; i < planar.ncand && j < 12; i++ )
+		{
+			if( planar.area[i] < PLANE_MIN_AREA )
+				continue;
+			gEngfuncs.Con_NPrintf( 5 + j++, "%s n %.2f %.2f %.2f d %.0f area %.0f", planar.weight[i] == 0.0f ? "MIRROR" : "      ",
+				planar.cand[i][0], planar.cand[i][1], planar.cand[i][2], planar.cand[i][3], planar.area[i] );
+		}
+		for( ; j < 12; j++ )
+			gEngfuncs.Con_NPrintf( 5 + j, " " );
+	}
 	planar.ncand = 0;
 	planar.count = 0;
+	planar.frame++;
 	if( !nchosen || w < 16 || h < 16 )
 		return;
 
@@ -830,7 +1431,10 @@ static void R_BumpPlanes( const ref_viewpass_t *rvp )
 			if( planar.color[i] ) pglDeleteTextures( 1, &planar.color[i] );
 			if( planar.depth[i] ) pglDeleteTextures( 1, &planar.depth[i] );
 			if( planar.fbo[i] ) pglDeleteFramebuffers( 1, &planar.fbo[i] );
-			planar.color[i] = R_BumpDynamicTexture( w, h, GL_RGBA8, GL_RGBA, GL_UNSIGNED_BYTE, GL_LINEAR );
+			planar.color[i] = R_BumpDynamicTexture( w, h, GL_RGBA16F_ARB, GL_RGBA, GL_HALF_FLOAT_ARB, GL_LINEAR );	// the depth goes in the alpha
+			// with its smaller copies, for the blur of rough mirrors (gl_post.c)
+			pglTexParameteri( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR );
+			if( pglGenerateMipmap ) pglGenerateMipmap( GL_TEXTURE_2D );
 			planar.depth[i] = R_BumpDynamicTexture( w, h, GL_DEPTH_COMPONENT24, GL_DEPTH_COMPONENT, GL_UNSIGNED_INT, GL_NEAREST );
 			pglGenFramebuffers( 1, &planar.fbo[i] );
 			pglBindFramebuffer( GL_FRAMEBUFFER, planar.fbo[i] );
@@ -843,11 +1447,20 @@ static void R_BumpPlanes( const ref_viewpass_t *rvp )
 				planar.fbo[i] = 0;
 			}
 		}
+		if( planar.fbo2 )
+		{
+			pglDeleteTextures( 1, &planar.color2 );
+			pglDeleteTextures( 1, &planar.depth2 );
+			pglDeleteTextures( 1, &planar.copy );
+			pglDeleteFramebuffers( 1, &planar.fbo2 );
+			planar.fbo2 = planar.color2 = planar.depth2 = planar.copy = 0;
+		}
 		pglBindFramebuffer( GL_FRAMEBUFFER, 0 );
 		glState.currentTextures[glState.activeTMU] = -1;
 		glState.currentTexturesIndex[glState.activeTMU] = -1;
 		planar.w = w;
 		planar.h = h;
+		memset( planar.valid, 0, sizeof( planar.valid ));
 	}
 
 	// a little wider than the view: the reflected view may be turned half a turn, it covers the same
@@ -855,6 +1468,12 @@ static void R_BumpPlanes( const ref_viewpass_t *rvp )
 	tx = tan( fov * M_PI_F / 360.0f );
 	ty = tan( rvp->fov_y * M_PI_F / 360.0f ) * tx / tan( rvp->fov_x * M_PI_F / 360.0f );
 
+	VectorCopy( rvp->vieworigin, planar.maineye );
+	if( r_reflect_medir.value == 1.0f )	// 2: only the frame, without stopping to wait for the card
+	{
+		pglFinish();
+		planar.t0 = gEngfuncs.pfnTime();
+	}
 	planar.drawing = true;
 	for( k = 0; k < nchosen; k++ )
 	{
@@ -862,7 +1481,7 @@ static void R_BumpPlanes( const ref_viewpass_t *rvp )
 		vec3_t f, r, u;
 		float hgt;
 
-		if( !planar.fbo[k] )
+		if( !planar.fbo[planar.count] )
 			continue;
 		hgt = DotProduct( chosen[k], rvp->vieworigin ) - chosen[k][3];
 		if( hgt < 1.0f )
@@ -881,12 +1500,46 @@ static void R_BumpPlanes( const ref_viewpass_t *rvp )
 		v.viewangles[YAW] = atan2( f[1], f[0] ) * 180.0f / M_PI_F;
 		v.viewangles[ROLL] = 0.0f;
 
+		// the same plane in the same place, the reflected eye barely moved: the image of a frame before
+		// still does (every r_reflect_cada frames, each place on its turn)
+		{
+			int s = planar.count, cada = Q_max( 1, (int)r_reflect_cada.value );
+
+			if( r_reflect_bounces.value >= 2.0f )
+				cada = 1;	// the second bounce is drawn over the image: again and again on an old one
+
+			if( cada > 1 && planar.valid[s] && ( planar.frame + s ) % cada
+				&& DotProduct( chosen[k], planar.plane[s] ) > 0.9999f && fabs( chosen[k][3] - planar.plane[s][3] ) < 0.5f
+				&& VectorDistance( v.vieworigin, planar.eye[s] ) < 24.0f && DotProduct( f, planar.vf[s] ) > 0.995f )
+			{
+				planar.pblur[s] = chosenblur[k];
+				planar.since[s] = chosensince[k];
+				planar.pfade[s] = bound( 0.0f, ( gp_host->realtime - chosensince[k] ) / 0.4f, 1.0f );
+				planar.count++;
+				planar.nreused++;
+				continue;
+			}
+		}
+
 		Vector4Copy( chosen[k], planar.plane[planar.count] );
+		planar.pblur[planar.count] = chosenblur[k];
+		planar.since[planar.count] = chosensince[k];
+		planar.pfade[planar.count] = bound( 0.0f, ( gp_host->realtime - chosensince[k] ) / 0.4f, 1.0f );	// comes in softly
 		planar.current = planar.count;
-		pglBindFramebuffer( GL_FRAMEBUFFER, planar.fbo[k] );
+		Vector4Copy( chosen[k], planar.clip );
+		VectorMA( rvp->vieworigin, 4.0f - hgt, chosen[k], planar.pvsfoot );
+		pglBindFramebuffer( GL_FRAMEBUFFER, planar.fbo[planar.count] );
 		RI.viewleaf = NULL;
 		R_RenderFrame( &v );
 		RI.viewleaf = NULL;		// force markleafs next frame
+		R_PostMirrorDepth( planar.fbo[planar.count], planar.depth[planar.count], w, h, Q_max( 256.0f, RI.farClip ));
+		if( pglGenerateMipmap )
+		{
+			GL_SelectTexture( XASH_TEXTURE0 );
+			pglBindTexture( GL_TEXTURE_2D, planar.color[planar.count] );
+			pglGenerateMipmap( GL_TEXTURE_2D );
+			glState.currentTextures[glState.activeTMU] = -1;
+		}
 		pglDisable( GL_CLIP_PLANE0 );
 
 		// how it was seen, for gl_post.c
@@ -894,11 +1547,30 @@ static void R_BumpPlanes( const ref_viewpass_t *rvp )
 		VectorCopy( RI.vforward, planar.vf[planar.count] );
 		VectorCopy( RI.vright, planar.vr[planar.count] );
 		VectorCopy( RI.vup, planar.vu[planar.count] );
+		VectorCopy( v.viewangles, planar.ang[planar.count] );
+		planar.zfar[planar.count] = Q_max( 256.0f, RI.farClip );
+		planar.valid[planar.count] = true;
+		if( r_reflect_debug.value >= 2 )
+		{
+			float dz[3] = { 0 };
+			pglReadPixels( w / 2, h / 4, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &dz[0] );
+			pglReadPixels( w / 2, h / 2, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &dz[1] );
+			pglReadPixels( w / 2, 3 * h / 4, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &dz[2] );
+			gEngfuncs.Con_NPrintf( 20 + planar.count, "mirror %d depth %.5f %.5f %.5f zfar %.0f", planar.count, dz[0], dz[1], dz[2], planar.zfar[planar.count] );
+		}
 		planar.count++;
 	}
-	planar.drawing = false;
 	planar.tanx = tx;
 	planar.tany = ty;
+	planar.nmirrors += planar.count;
+	if( r_reflect_bounces.value >= 2.0f && planar.count > 1 )
+		R_BumpBounces( w, h, fov, ty );
+	planar.drawing = false;
+	if( r_reflect_medir.value == 1.0f )
+	{
+		pglFinish();
+		planar.tmir += gEngfuncs.pfnTime() - planar.t0;
+	}
 	pglBindFramebuffer( GL_FRAMEBUFFER, 0 );
 	glState.currentTextures[glState.activeTMU] = -1;
 	glState.currentTexturesIndex[glState.activeTMU] = -1;
@@ -909,7 +1581,7 @@ void R_BumpClipPlane( void )
 {
 	if( planar.drawing )
 	{
-		const float *p = planar.plane[planar.current];
+		const float *p = planar.clip;
 		GLdouble eq[4] = { p[0], p[1], p[2], -p[3] - 0.5 };
 
 		pglClipPlane( GL_CLIP_PLANE0, eq );
@@ -918,13 +1590,44 @@ void R_BumpClipPlane( void )
 	else pglDisable( GL_CLIP_PLANE0 );
 }
 
+// r_debug_vista: the main view from another place
+const ref_viewpass_t *R_BumpDebugView( const ref_viewpass_t *rvp )
+{
+	static ref_viewpass_t v;
+	float x, y, z, p, w;
+
+	if( !r_debug_vista.string[0] || !FBitSet( rvp->flags, RF_DRAW_WORLD ) || FBitSet( rvp->flags, RF_DRAW_CUBEMAP|RF_ONLY_CLIENTDRAW ))
+		return rvp;
+	if( sscanf( r_debug_vista.string, "%f %f %f %f %f", &x, &y, &z, &p, &w ) != 5 )
+		return rvp;
+	v = *rvp;
+	VectorSet( v.vieworigin, x, y, z );
+	VectorSet( v.viewangles, p, w, 0.0f );
+	return &v;
+}
+
+qboolean R_BumpCubeOn( void )
+{
+	return r_reflect_cube.value != 0.0f;
+}
+
+const float *R_BumpPlanarEye( void )
+{
+	return planar.maineye;
+}
+
+const float *R_BumpPlanarFoot( void )
+{
+	return planar.pvsfoot;
+}
+
 qboolean R_BumpDrawingPlanar( void )
 {
 	return planar.drawing;
 }
 
 // for gl_post.c: the mirrors of this frame
-int R_BumpMirrors( GLuint *tex, vec4_t *plane, vec3_t *eye, vec3_t *vf, vec3_t *vr, vec3_t *vu, float *tanx, float *tany )
+int R_BumpMirrors( GLuint *tex, GLuint *dep, float *zfar, vec4_t *plane, vec3_t *eye, vec3_t *vf, vec3_t *vr, vec3_t *vu, float *blur, float *fade, float *tanx, float *tany )
 {
 	int i;
 
@@ -933,11 +1636,15 @@ int R_BumpMirrors( GLuint *tex, vec4_t *plane, vec3_t *eye, vec3_t *vf, vec3_t *
 	for( i = 0; i < planar.count; i++ )
 	{
 		tex[i] = planar.color[i];
+		dep[i] = planar.depth[i];
+		zfar[i] = planar.zfar[i];
 		Vector4Copy( planar.plane[i], plane[i] );
 		VectorCopy( planar.eye[i], eye[i] );
 		VectorCopy( planar.vf[i], vf[i] );
 		VectorCopy( planar.vr[i], vr[i] );
 		VectorCopy( planar.vu[i], vu[i] );
+		blur[i] = planar.pblur[i];
+		fade[i] = planar.pfade[i];
 	}
 	*tanx = planar.tanx;
 	*tany = planar.tany;
@@ -960,10 +1667,10 @@ qboolean R_BumpDynamicCube( GLuint *color, GLuint *depth, vec3_t origin, float z
 {
 	if( !dyn.valid || !r_reflect.value || !r_reflect_dynamic.value )
 		return false;
-	*color = dyn.color;
-	*depth = dyn.depth;
-	VectorCopy( dyn.origin, origin );
-	memcpy( zfar, dyn.zfar, sizeof( dyn.zfar ));
+	*color = dyn.color[dyn.front];
+	*depth = dyn.depth[dyn.front];
+	VectorCopy( dyn.origin[dyn.front], origin );
+	memcpy( zfar, dyn.zfar[dyn.front], sizeof( dyn.zfar[0] ));
 	*size = dyn.size;
 	return true;
 }
@@ -1098,11 +1805,16 @@ qboolean R_BumpBegin( texture_t *t, int index )
 		int f = bump.flags[index];
 
 		pglUniform1fARB( bump.u_bump, r_bump.value && FBitSet( f, BUMP_RELIEF ) ? r_bump_scale.value : 0.0f );	// 0: the flat face
-		pglUniform1fARB( bump.u_spec, FBitSet( f, BUMP_REFLECT ) ? r_specular.value : 0.0f );
-		pglUniform1fARB( bump.u_refl, FBitSet( f, BUMP_REFLECT ) ? r_reflect.value : 0.0f );
+		pglUniform1fARB( bump.u_spec, FBitSet( f, BUMP_REFLECT ) ? r_specular.value * bump.brillok[index] : 0.0f );
+		pglUniform1fARB( bump.u_refl, FBitSet( f, BUMP_REFLECT ) ? r_reflect.value * bump.brillok[index] : 0.0f );
 		bump.reflects = FBitSet( f, BUMP_REFLECT ) && r_reflect.value;
+		bump.curblur = bump.blur[index];
+		bump.curplano = FBitSet( f, BUMP_PLANO ) != 0;
+		pglUniform1fARB( bump.u_plano, bump.curplano ? 1.0f : 0.0f );
+		pglUniform1fARB( bump.u_rug, bound( 0.0f, bump.blur[index] / RUGOSIDAD_MAX, 1.0f ));
 	}
-	pglUniform1fARB( bump.u_ssr, R_PostScreenReflections( ) ? 1.0f : 0.0f );
+	// the mirrors are drawn before the post processing starts: they mark what reflects too (the second bounce)
+	pglUniform1fARB( bump.u_ssr, R_PostScreenReflections( ) || planar.drawing ? 1.0f : 0.0f );
 	pglUniform1fARB( bump.u_nprobes, -1.0f );	// no fixed reflection unless the surface has probes (not the sky either)
 	// the sky gradient, relative to its own average too
 	pglUniform1fARB( bump.u_skyavg, Q_max( 0.05f, ( bump.horizon[0] + bump.horizon[1] + bump.horizon[2] + bump.zenith[0] + bump.zenith[1] + bump.zenith[2] ) / 6.0f ));
@@ -1124,9 +1836,71 @@ R_BumpPlaneSeen
 a face that reflects, drawn in the view: its plane, for the mirrors of the next frame
 ==============
 */
+// faces behind walls: the engine draws what is in the PVS and in front, hidden or not; from outside the
+// floors inside the bases counted, and being big they took the mirrors from the door. Lines from the eye
+// to the middle and around it; the answer kept some frames (each face its turn, not all at once)
+static struct
+{
+	int		*frame;		// when it was looked at, 0 never
+	byte		*seen;
+	int		count;
+	const model_t	*world;
+} surfvis;
+
+static qboolean R_BumpFaceSeen( const msurface_t *s, const vec3_t N, float d, const vec3_t c, const vec3_t ofs )
+{
+	int i, k = s - WORLDMODEL->surfaces;
+	qboolean seen = false;
+
+	if( surfvis.world != WORLDMODEL || surfvis.count != WORLDMODEL->numsurfaces )
+	{
+		if( surfvis.frame ) Mem_Free( surfvis.frame );
+		if( surfvis.seen ) Mem_Free( surfvis.seen );
+		surfvis.count = WORLDMODEL->numsurfaces;
+		surfvis.frame = Mem_Calloc( r_temppool, sizeof( int ) * surfvis.count );
+		surfvis.seen = Mem_Calloc( r_temppool, surfvis.count );
+		surfvis.world = WORLDMODEL;
+	}
+	if( k >= 0 && k < surfvis.count && surfvis.frame[k] && tr.realframecount - surfvis.frame[k] < 6 )
+		return surfvis.seen[k];
+
+	for( i = 0; i < 9 && !seen; i++ )
+	{
+		vec3_t p, eye;
+		pmtrace_t *t;
+		float len;
+
+		VectorCopy( c, p );
+		if( i )
+		{
+			// a corner of its box, on the plane, most of the way from the middle
+			int j = i - 1;
+			vec3_t q;
+
+			VectorSet( q, ( j & 1 ? s->info->maxs : s->info->mins )[0], ( j & 2 ? s->info->maxs : s->info->mins )[1], ( j & 4 ? s->info->maxs : s->info->mins )[2] );
+			VectorAdd( q, ofs, q );
+			VectorMA( q, -( DotProduct( N, q ) - d ), N, q );
+			VectorLerp( c, 0.8f, q, p );
+		}
+		VectorMA( p, 2.0f, N, p );
+		VectorCopy( RI.rvp.vieworigin, eye );
+		t = gEngfuncs.EV_VisTraceLine( eye, p, PM_GLASS_IGNORE|PM_STUDIO_IGNORE );
+		len = VectorDistance( eye, p );
+		seen = ( 1.0f - t->fraction ) * len < 4.0f;
+	}
+
+	if( k >= 0 && k < surfvis.count )
+	{
+		surfvis.frame[k] = tr.realframecount - ( k % 6 );	// spread: not all looked at again the same frame
+		if( !surfvis.frame[k] ) surfvis.frame[k] = 1;
+		surfvis.seen[k] = seen;
+	}
+	return seen;
+}
+
 static void R_BumpPlaneSeen( const msurface_t *s, const vec3_t N )
 {
-	vec3_t c, size;
+	vec3_t c, size, ofs = { 0.0f, 0.0f, 0.0f };
 	float d, h, area, w;
 	int i;
 
@@ -1137,20 +1911,31 @@ static void R_BumpPlaneSeen( const msurface_t *s, const vec3_t N )
 	VectorCopy( s->info->origin, c );
 	if( RI.currententity && RI.currententity != CL_GetEntityByIndex( 0 ))
 	{
-		vec3_t t;
 		Matrix4x4_VectorTransform( RI.objectMatrix, s->info->origin, c );
-		VectorSet( t, RI.objectMatrix[0][3], RI.objectMatrix[1][3], RI.objectMatrix[2][3] );
-		d += DotProduct( N, t );
+		VectorSet( ofs, RI.objectMatrix[0][3], RI.objectMatrix[1][3], RI.objectMatrix[2][3] );
+		d += DotProduct( N, ofs );
 	}
 	h = DotProduct( N, RI.rvp.vieworigin ) - d;
 	if( h < 1.0f )
 		return;
 
-	// the size of the face over its distance squared: the part of the view it takes
+	// not the ceilings (the floor texture of the bases is on them too); the slopes do: with the weight of
+	// what they take of the view and the mirror kept by the one that has it, they no longer take it from the floor
+	if( N[2] < -0.1f )
+		return;
+
+	if( !R_BumpFaceSeen( s, N, d, c, ofs ))
+		return;
+
+	// the part of the view it takes: its size, turned to the eye, over the distance squared. Over the
+	// distance alone the big floors far away won over the door in front, which kept only the fixed reflection
 	VectorSubtract( s->info->maxs, s->info->mins, size );
 	area = Q_max( size[0] * size[1], Q_max( size[0] * size[2], size[1] * size[2] ));
-	VectorSubtract( c, RI.rvp.vieworigin, c );
-	w = area / ( VectorLength( c ) + 128.0f );
+	VectorSubtract( RI.rvp.vieworigin, c, c );
+	{
+		float dist = VectorLength( c ) + 1.0f;
+		w = area * Q_max( h / dist, 0.15f ) / ( dist * dist + 64.0f * 64.0f ) * 1000.0f;
+	}
 
 	for( i = 0; i < planar.ncand; i++ )
 	{
@@ -1158,6 +1943,7 @@ static void R_BumpPlaneSeen( const msurface_t *s, const vec3_t N )
 		{
 			planar.weight[i] += w;
 			planar.area[i] += area;
+			planar.blur[i] = Q_max( planar.blur[i], bump.curblur );
 			return;
 		}
 	}
@@ -1167,7 +1953,24 @@ static void R_BumpPlaneSeen( const msurface_t *s, const vec3_t N )
 	planar.cand[i][3] = d;
 	planar.weight[i] = w;
 	planar.area[i] = area;
+	planar.blur[i] = bump.curblur;
 	planar.ncand++;
+}
+
+/*
+==============
+R_BumpAguaPlano
+
+the water of the world asks for a mirror too, sharp (gl_agua.c)
+==============
+*/
+void R_BumpAguaPlano( const msurface_t *s, const vec3_t N )
+{
+	float blur = bump.curblur;
+
+	bump.curblur = 0.0f;
+	R_BumpPlaneSeen( s, N );
+	bump.curblur = blur;
 }
 
 /*
@@ -1215,7 +2018,7 @@ void R_BumpSurface( const msurface_t *s )
 		Matrix4x4_VectorRotate( RI.objectMatrix, N, r ); VectorCopy( r, N );
 	}
 
-	if( bump.reflects )
+	if( bump.reflects && bump.curplano )
 		R_BumpPlaneSeen( s, N );
 
 	pglUniform3fARB( bump.u_T, T[0], T[1], T[2] );

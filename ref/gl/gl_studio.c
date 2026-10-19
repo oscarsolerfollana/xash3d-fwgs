@@ -124,6 +124,8 @@ CVAR_DEFINE_AUTO( r_studio_sort_textures, "0", FCVAR_GLCONFIG, "change draw orde
 CVAR_DEFINE_AUTO( r_studio_drawelements, "1", FCVAR_GLCONFIG, "use glDrawElements for studiomodels" );
 CVAR_DEFINE_AUTO( r_studio_builtin_renderer, "0", 0, "use built-in studio model renderer instead of the one provided by client library (debugging)" );
 static cvar_t			*cl_righthand = NULL;
+static cvar_t			*r_texturas_hd = NULL;	// custom: F8, the textures of the models as they were
+static unsigned short		studio_original[MAX_TEXTURES];	// custom: the texture of the .mdl under each HD one of materials/
 
 static r_studio_interface_t	*pStudioDraw;
 static studio_draw_state_t	g_studio;		// global studio state
@@ -1492,7 +1494,14 @@ static void R_StudioSetupSkin( studiohdr_t *ptexturehdr, int index )
 
 	if( r_lightmap->value && !r_fullbright->value )
 		GL_Bind( XASH_TEXTURE0, tr.whiteTexture );
-	else GL_Bind( XASH_TEXTURE0, ptexture[index].index );
+	else
+	{
+		int texnum = ptexture[index].index;
+
+		if( r_texturas_hd && !r_texturas_hd->value && texnum > 0 && texnum < MAX_TEXTURES && studio_original[texnum] )
+			texnum = studio_original[texnum];
+		GL_Bind( XASH_TEXTURE0, texnum );
+	}
 }
 
 /*
@@ -3391,6 +3400,7 @@ void R_DrawViewModel( void )
 
 	// adjust the depth range to prevent view model from poking into walls
 	pglDepthRange( gldepthmin, gldepthmin + 0.3f * ( gldepthmax - gldepthmin ));
+	R_LoadViewModelProjection( true ); // custom: not cut when held up to the eye
 	RI.currentmodel = RI.currententity->model;
 
 	switch( RI.currententity->model->type )
@@ -3406,6 +3416,7 @@ void R_DrawViewModel( void )
 
 	// restore depth range
 	pglDepthRange( gldepthmin, gldepthmax );
+	R_LoadViewModelProjection( false );
 }
 
 /*
@@ -3488,7 +3499,18 @@ static void R_StudioLoadTexture( model_t *mod, studiohdr_t *phdr, mstudiotexture
 			int gl_texturenum = GL_LoadTexture( texname, NULL, 0, flags );
 			R_TextureReplacementReport( mdlname, gl_texturenum, texname );
 			if(( load_external = gl_texturenum != 0 ))
+			{
+				// custom: the one of the .mdl as well, for F8 (r_texturas_hd 0)
+				size_t size = sizeof( mstudiotexture_t ) + ptexture->width * ptexture->height + 768;
+				int original;
+
+				gEngfuncs.Image_SetMDLPointer((byte *)phdr + ptexture->index );
+				Q_snprintf( texname, sizeof( texname ), "#%s/%s.mdl", mdlname, name );
+				original = GL_LoadTexture( texname, (byte *)ptexture, size, flags );
+				if( gl_texturenum < MAX_TEXTURES )
+					studio_original[gl_texturenum] = original > 0 ? original : 0;
 				ptexture->index = gl_texturenum;
+			}
 		}
 	}
 
@@ -3553,6 +3575,11 @@ void Mod_StudioUnloadTextures( void *data )
 	{
 		if( ptexture[i].index == tr.defaultTexture )
 			continue;
+		if( ptexture[i].index > 0 && ptexture[i].index < MAX_TEXTURES && studio_original[ptexture[i].index] )
+		{
+			GL_FreeTexture( studio_original[ptexture[i].index] );
+			studio_original[ptexture[i].index] = 0;
+		}
 		GL_FreeTexture( ptexture[i].index );
 	}
 }
@@ -3565,6 +3592,7 @@ static void pfnStudioDynamicLight( cl_entity_t *ent, alight_t *plight )
 qboolean R_StudioFillAPI( engine_studio_api_t *api, r_studio_interface_t *pDefaultDraw )
 {
 	cl_righthand = gEngfuncs.pfnGetCvarPointer( "cl_righthand" );
+	r_texturas_hd = gEngfuncs.pfnGetCvarPointer( "r_texturas_hd" );
 
 	api->GetCurrentEntity        = pfnGetCurrentEntity;
 	api->PlayerInfo              = pfnPlayerInfo;

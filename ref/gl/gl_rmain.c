@@ -370,7 +370,44 @@ void R_SetupFrustum( void )
 R_SetupProjectionMatrix
 =============
 */
+static void R_SetupProjectionMatrixNear( matrix4x4 m, float zNear );
+
 static void R_SetupProjectionMatrix( matrix4x4 m )
+{
+	R_SetupProjectionMatrixNear( m, 4.0f );
+}
+
+/*
+=============
+R_LoadViewModelProjection
+
+custom: the weapon in hand with the near plane closer, it cut it when brought
+up to the eye (aiming down the sights, cl_ads.c). false puts the view's back
+=============
+*/
+void R_LoadViewModelProjection( qboolean cerca )
+{
+	matrix4x4 m;
+	qboolean espejo = cerca && gEngfuncs.EngineGetParm( PARM_VIEWMODEL_FLIP, 0 );
+
+	pglMatrixMode( GL_PROJECTION );
+	if( cerca )
+	{
+		R_SetupProjectionMatrixNear( m, 1.0f );
+		// a left-handed weapon in the right hand: mirrored on the screen, its faces wound the other way
+		if( espejo )
+		{
+			m[0][0] = -m[0][0]; m[0][1] = -m[0][1];
+			m[0][2] = -m[0][2]; m[0][3] = -m[0][3];
+		}
+		GL_LoadMatrix( m );
+	}
+	else GL_LoadMatrix( RI.projectionMatrix );
+	pglFrontFace( espejo ? GL_CW : GL_CCW );
+	pglMatrixMode( GL_MODELVIEW );
+}
+
+static void R_SetupProjectionMatrixNear( matrix4x4 m, float zNear )
 {
 	if( FBitSet( RI.rvp.flags, RF_DRAW_OVERVIEW ))
 	{
@@ -381,7 +418,6 @@ static void R_SetupProjectionMatrix( matrix4x4 m )
 
 	RI.farClip = R_GetFarClip();
 
-	GLfloat zNear = 4.0f;
 	GLfloat zFar = Q_max( 256.0f, RI.farClip );
 
 	GLfloat yMax = zNear * tan( RI.rvp.fov_y * M_PI_F / 360.0f );
@@ -795,6 +831,23 @@ void R_DrawFog( void )
 R_DrawEntitiesOnList
 =============
 */
+// custom: r_fps_log, the time the game dll takes drawing its triangles (NS: its particles), in the main view and in the others (reflections)
+static double fpslog_tri[2];
+static int fpslog_n[2];
+static double fpslog_g[4], fpslog_g3;	// r_fps_log 2: with glFinish, the reflections, the scene and the post processing
+static double fpslog_marca( void )
+{
+	if( r_fps_log.value < 2.0f ) return 0.0;
+	pglFinish();
+	return gEngfuncs.pfnTime();
+}
+static double fpslog_t0, fpslog_fin, fpslog_dibujo, fpslog_swap, fpslog_fuera;
+static void R_FpsLogTri( double t )
+{
+	fpslog_n[FBitSet( RI.rvp.flags, RF_DRAW_CUBEMAP ) || R_BumpDrawingDynamic( ) ? 1 : 0]++;
+	fpslog_tri[FBitSet( RI.rvp.flags, RF_DRAW_CUBEMAP ) || R_BumpDrawingDynamic( ) ? 1 : 0] += t;
+}
+
 static void R_DrawEntitiesOnList( void )
 {
 	tr.blend = 1.0f;
@@ -835,6 +888,10 @@ static void R_DrawEntitiesOnList( void )
 
 	GL_CheckForErrors();
 
+	// custom: from here on what is blended does not write the alpha of the view, which says how the surface
+	// under it reflects (gl_bump.c): smoke and sprites came out as coloured squares in the reflections
+	pglColorMask( GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE );
+
 	// draw sprites seperately, because of alpha blending
 	for( int i = 0; i < tr.draw_list->num_solid_entities && !FBitSet( RI.rvp.flags, RF_ONLY_CLIENTDRAW ); i++ )
 	{
@@ -865,7 +922,11 @@ static void R_DrawEntitiesOnList( void )
 	GL_CheckForErrors();
 
 	if( FBitSet( RI.rvp.flags, RF_DRAW_WORLD ))
+	{
+		double t0 = gEngfuncs.pfnTime();
 		gEngfuncs.pfnDrawNormalTriangles();
+		R_FpsLogTri( gEngfuncs.pfnTime() - t0 );
+	}
 
 	GL_CheckForErrors();
 
@@ -888,6 +949,12 @@ static void R_DrawEntitiesOnList( void )
 		Assert( RI.currententity != NULL );
 		Assert( RI.currentmodel != NULL );
 
+		// custom: the solid ones only sorted by distance still say how they reflect
+		{
+			GLboolean alfa = RI.currententity->curstate.rendermode == kRenderNormal ? GL_TRUE : GL_FALSE;
+			pglColorMask( GL_TRUE, GL_TRUE, GL_TRUE, alfa );
+		}
+
 		switch( RI.currentmodel->type )
 		{
 		case mod_brush:
@@ -909,10 +976,13 @@ static void R_DrawEntitiesOnList( void )
 
 	GL_CheckForErrors();
 
+	pglColorMask( GL_TRUE, GL_TRUE, GL_TRUE, GL_FALSE );
 	if( FBitSet( RI.rvp.flags, RF_DRAW_WORLD ))
 	{
+		double t0 = gEngfuncs.pfnTime();
 		pglTexEnvi( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE );
 		gEngfuncs.pfnDrawTransparentTriangles ();
+		R_FpsLogTri( gEngfuncs.pfnTime() - t0 );
 	}
 
 	GL_CheckForErrors();
@@ -927,6 +997,12 @@ static void R_DrawEntitiesOnList( void )
 	GL_CheckForErrors();
 
 	pglDisable( GL_BLEND );	// Trinity Render issues
+	pglColorMask( GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE );	// custom: the view model writes it again (1: it does not reflect)
+
+	// custom: the water with its shader before the view model (gl_agua.c): it reads the view drawn so far,
+	// and with the weapon in it, a copy of the weapon came out bent beside it
+	if( R_AguaActiva( ))
+		R_DrawWaterSurfaces();
 
 	if( !FBitSet( RI.rvp.flags, RF_ONLY_CLIENTDRAW ))
 		R_DrawViewModel();
@@ -1033,6 +1109,7 @@ R_BeginFrame
 */
 void R_BeginFrame( qboolean clearScene )
 {
+	fpslog_t0 = gEngfuncs.pfnTime();
 	glConfig.softwareGammaUpdate = false;	// in case of possible fails
 
 	// wallhack: the translucent world doesn't repaint every pixel, so without
@@ -1081,9 +1158,13 @@ void R_RenderFrame( const ref_viewpass_t *rvp )
 	if( r_norefresh->value )
 		return;
 
+	rvp = R_BumpDebugView( rvp ); // custom: r_debug_vista, for tests
+
 	// custom: reflection probes, drawn on the first frame of a map (gl_bump.c)
 	R_BumpProbes( rvp );
+	double g0 = fpslog_marca( );
 	R_BumpDynamic( rvp ); // custom: reflections around the player, some sides each frame
+	double g1 = fpslog_marca( );
 
 	// setup the initial render params
 	R_SetupRefParams( rvp );
@@ -1112,14 +1193,20 @@ void R_RenderFrame( const ref_viewpass_t *rvp )
 	tr.realframecount++; // right called after viewmodel events
 	if( R_PostBegin( )) // custom: shader post processing (gl_post.c)
 	{
+		double g2, g3;
 		R_RenderScene();
+		g2 = fpslog_marca( );
 		R_PostEnd();
+		g3 = fpslog_marca( );
+		if( r_fps_log.value >= 2.0f ) { fpslog_g[0] += g1 - g0; fpslog_g[1] += g2 - g1; fpslog_g[2] += g3 - g2; fpslog_g3 = g3; }
 	}
 	else
 	{
 		R_RenderScene();
 		R_Bloom(); // custom
 	}
+
+	R_Lupa(); // custom: gl_post.c
 
 	return;
 }
@@ -1139,7 +1226,40 @@ void R_EndFrame( void )
 #endif
 	// flush any remaining 2D bits
 	R_Set2DMode( false );
-	gEngfuncs.GL_SwapBuffers();
+	{
+		double a, b;
+		if( r_fps_log.value >= 2.0f && fpslog_g3 > 0.0 ) { double g4 = fpslog_marca( ); fpslog_g[3] += g4 - fpslog_g3; fpslog_g3 = 0.0; }
+		a = gEngfuncs.pfnTime();
+		gEngfuncs.GL_SwapBuffers();
+		b = gEngfuncs.pfnTime();
+		fpslog_dibujo += a - fpslog_t0;
+		fpslog_swap += b - a;
+		if( fpslog_fin > 0.0 ) fpslog_fuera += fpslog_t0 - fpslog_fin;
+		fpslog_fin = b;
+	}
+
+	// custom: r_fps_log 1, the frames of each 2 seconds to the console (to find what slows down with time)
+	if( r_fps_log.value )
+	{
+		static double desde;
+		static int frames;
+
+		frames++;
+		if( gp_host->realtime - desde >= 2.0 )
+		{
+			if( desde > 0.0 )
+				gEngfuncs.Con_Printf( "fps_log: %.0f %.0f  ms por fotograma: dibujo %.2f, swap %.2f, motor y juego %.2f; triangulos del juego: vista %.2f (%.1f), reflejos %.2f (%.1f); gpu: reflejos %.2f escena %.2f post %.2f hud y 2d %.2f\n", gp_host->realtime, frames / ( gp_host->realtime - desde ),
+					fpslog_dibujo * 1000.0 / frames, fpslog_swap * 1000.0 / frames, fpslog_fuera * 1000.0 / frames,
+					fpslog_tri[0] * 1000.0 / frames, fpslog_n[0] / (double)frames, fpslog_tri[1] * 1000.0 / frames, fpslog_n[1] / (double)frames,
+					fpslog_g[0] * 1000.0 / frames, fpslog_g[1] * 1000.0 / frames, fpslog_g[2] * 1000.0 / frames, fpslog_g[3] * 1000.0 / frames );
+			fpslog_tri[0] = fpslog_tri[1] = 0.0;
+			fpslog_dibujo = fpslog_swap = fpslog_fuera = 0.0;
+			fpslog_g[0] = fpslog_g[1] = fpslog_g[2] = fpslog_g[3] = 0.0;
+			fpslog_n[0] = fpslog_n[1] = 0;
+			desde = gp_host->realtime;
+			frames = 0;
+		}
+	}
 }
 
 /*
